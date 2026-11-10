@@ -38,14 +38,14 @@ public final class OneSidedJunctions {
   private static CompoundTag selection(CompoundTag command){var t=new CompoundTag();for(String key:List.of("Main","AttachedPoint","Branch","MainFirst","Paired","MainB","AttachedPointB"))if(command.contains(key))t.put(key,command.get(key).copy());return t;}
   private static void openSelection(ServerPlayer player,CompoundTag tool,CompoundTag command){tool.put("SideSelection",selection(command));com.sora.splineroads.net.RoadNetwork.open(player,SideRoads.payload(command));}
   public static String buildRoadSelected(ServerLevel level,ServerPlayer player,CompoundTag command,net.minecraft.world.item.ItemStack stack){
-    var tool=stack.getOrCreateTag();
+    var tool=ItemTag.of(stack);
     if(!command.hasUUID("Id")&&(!level.dimension().location().toString().equals(tool.getString("Dimension"))||!tool.contains("SideSelection")||!tool.getCompound("SideSelection").equals(selection(command))))throw new IllegalArgumentException("连接选点已失效，请重新选择附属点和道路端点");
     String result=build(level,player,command,RoadRecord.readSettings(command.getCompound("Settings")));
     for(String key:List.of("SideSelection","SideMain","SidePoint","Start"))tool.remove(key);
     return result;
   }
   public static String buildSelected(ServerLevel level,ServerPlayer player,CompoundTag command,net.minecraft.world.item.ItemStack stack){
-    var tool=stack.getOrCreateTag();
+    var tool=ItemTag.of(stack);
     if(!command.hasUUID("Id")&&(!level.dimension().location().toString().equals(tool.getString("Dimension"))||!tool.contains("SideSelection")||!tool.getCompound("SideSelection").equals(selection(command))))throw new IllegalArgumentException("单边路口选点已失效，请重新选择附属点和支路端点");
     String result=build(level,player,command);
     for(String key:List.of("SideSelection","SideMain","SidePoint","Start"))tool.remove(key);

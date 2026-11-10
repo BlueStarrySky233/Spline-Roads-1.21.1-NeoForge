@@ -6,7 +6,7 @@ import java.util.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.LightTexture;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /** Bounded labels on the selected immutable preview only; no world/entity scans. */
 public final class TollPreview {
@@ -26,7 +26,7 @@ public final class TollPreview {
   private static String coordinates(V p){return String.format(Locale.ROOT,"(%.1f, %.1f, %.1f)",p.x(),p.y(),p.z());}
   public static void render(RenderLevelStageEvent event){
     if(ClientRoads.preview==null||ClientRoads.preview.settings().style()!=com.sora.splineroads.core.RoadGeometry.Style.TOLL)return;
-    var mc=Minecraft.getInstance();var camera=event.getCamera().getPosition();var pose=event.getPoseStack();var buffers=mc.renderBuffers().bufferSource();
+    var mc=Minecraft.getInstance();var camera=event.getCamera().getPosition();var pose=WorldRenderPose.of(event);var buffers=mc.renderBuffers().bufferSource();
     for(var mark:marks){V p=mark.at();if(p.distance(new V(camera.x,camera.y,camera.z))>192)continue;
       pose.pushPose();pose.translate(p.x()-camera.x,p.y()-camera.y,p.z()-camera.z);pose.mulPose(event.getCamera().rotation());pose.scale(-.04f,-.04f,.04f);
       mc.font.drawInBatch(mark.text(),-mc.font.width(mark.text())/2f,0,mark.color(),false,pose.last().pose(),buffers,Font.DisplayMode.SEE_THROUGH,0x60000000,LightTexture.FULL_BRIGHT);pose.popPose();

@@ -9,24 +9,30 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.*;
 import net.minecraft.world.item.ItemStack;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.network.*;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.loading.FMLEnvironment;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+import com.sora.splineroads.world.ItemTag;
 
 public final class RoadNetwork {
-  private static final String PROTOCOL = "126";
-  public static final SimpleChannel CHANNEL =
-      NetworkRegistry.newSimpleChannel(
-          ResourceLocation.fromNamespaceAndPath(SplineRoads.ID, "roads"),
-          () -> PROTOCOL,
-          PROTOCOL::equals,
-          PROTOCOL::equals);
+  private static final String PROTOCOL = "1";
 
-  public record ServerMessage(RoadWire.Fragment fragment) {
+  public record ServerMessage(RoadWire.Fragment fragment) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<ServerMessage> TYPE =
+        new CustomPacketPayload.Type<>(
+            ResourceLocation.fromNamespaceAndPath(SplineRoads.ID, "road_fragment"));
+    public static final StreamCodec<FriendlyByteBuf, ServerMessage> CODEC =
+        StreamCodec.of((buf, msg) -> msg.encode(buf), ServerMessage::decode);
+
     public void encode(FriendlyByteBuf buf) {
       buf.writeUUID(fragment.id());
       buf.writeVarInt(fragment.index());
@@ -43,26 +49,46 @@ public final class RoadNetwork {
               buf.readByteArray(RoadWire.PART_BYTES)));
     }
 
-    public static void handle(ServerMessage msg, Supplier<NetworkEvent.Context> supplier) {
-      var ctx = supplier.get();
+    public static void handle(ServerMessage msg, IPayloadContext ctx) {
       ctx.enqueueWork(
-          () ->
-              DistExecutor.unsafeRunWhenOn(
-                  Dist.CLIENT, () -> () -> ClientRoads.fragment(msg.fragment)));
-      ctx.setPacketHandled(true);
+          () -> {
+            if (FMLEnvironment.dist == Dist.CLIENT) ClientRoads.fragment(msg.fragment);
+          });
+    }
+
+    @Override
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+      return TYPE;
     }
   }
 
   /** Small tool replies use their own ordered stream, independent of road decoding. */
-  public record ControlMessage(RoadWire.Fragment fragment) {
+  public record ControlMessage(RoadWire.Fragment fragment) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<ControlMessage> TYPE =
+        new CustomPacketPayload.Type<>(
+            ResourceLocation.fromNamespaceAndPath(SplineRoads.ID, "road_control"));
+    public static final StreamCodec<FriendlyByteBuf, ControlMessage> CODEC =
+        StreamCodec.of((buf, msg) -> msg.encode(buf), ControlMessage::decode);
+
     public void encode(FriendlyByteBuf buf){new ServerMessage(fragment).encode(buf);}
     public static ControlMessage decode(FriendlyByteBuf buf){return new ControlMessage(ServerMessage.decode(buf).fragment());}
-    public static void handle(ControlMessage msg,Supplier<NetworkEvent.Context> supplier){
-      var ctx=supplier.get();ctx.enqueueWork(()->DistExecutor.unsafeRunWhenOn(Dist.CLIENT,()->()->ClientRoads.control(msg.fragment())));ctx.setPacketHandled(true);
+    public static void handle(ControlMessage msg,IPayloadContext ctx){
+      ctx.enqueueWork(()->{if(FMLEnvironment.dist==Dist.CLIENT)ClientRoads.control(msg.fragment());});
+    }
+
+    @Override
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+      return TYPE;
     }
   }
 
-  public record Action(CompoundTag tag) {
+  public record Action(CompoundTag tag) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<Action> TYPE =
+        new CustomPacketPayload.Type<>(
+            ResourceLocation.fromNamespaceAndPath(SplineRoads.ID, "action"));
+    public static final StreamCodec<FriendlyByteBuf, Action> CODEC =
+        StreamCodec.of((buf, msg) -> msg.encode(buf), Action::decode);
+
     public void encode(FriendlyByteBuf buf) {
       CompoundTag command=tag.copy();
       command.remove("JunctionGraph"); // Preview context is rebuilt from authoritative roads.
@@ -75,13 +101,12 @@ public final class RoadNetwork {
       return new Action(t == null ? new CompoundTag() : t);
     }
 
-    public static void handle(Action msg, Supplier<NetworkEvent.Context> supplier) {
-      var ctx = supplier.get();
+    public static void handle(Action msg, IPayloadContext ctx) {
+      ServerPlayer sender = ctx.player() instanceof ServerPlayer player ? player : null;
       // The server can be inside pre-write validation. Cancellation must not queue
       // behind that validation: this path touches only the owner's atomic job token,
       // never world, inventory or UI state on the network thread.
       if(msg.tag.getString("Action").equals("laneRampCancel")){
-        var sender=ctx.getSender();
         if(sender!=null){
           UUID owner=sender.getUUID();long request=msg.tag.getLong("Request");
           RoadPlanningJobs.cancel(owner,request);
@@ -90,32 +115,29 @@ public final class RoadNetwork {
           ctx.enqueueWork(()->RoadPlanningJobs.cancel(owner,request));
         }
       }else if(msg.tag.getString("Action").equals("railbedCancel")&&msg.tag.hasUUID("Token")){
-        var sender=ctx.getSender();if(sender!=null)RailbedTool.cancelSignal(sender.getUUID(),msg.tag.getUUID("Token"));
-        ctx.enqueueWork(()->{if(ctx.getSender()!=null)act(ctx.getSender(),msg.tag);});
+        if(sender!=null)RailbedTool.cancelSignal(sender.getUUID(),msg.tag.getUUID("Token"));
+        ctx.enqueueWork(()->{if(sender!=null)act(sender,msg.tag);});
       }else ctx.enqueueWork(
           () -> {
-            if (ctx.getSender() != null) act(ctx.getSender(), msg.tag);
+            if (sender != null) act(sender, msg.tag);
           });
-      ctx.setPacketHandled(true);
+    }
+
+    @Override
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+      return TYPE;
     }
   }
 
-  public static void register() {
-    CHANNEL.registerMessage(2,ControlMessage.class,ControlMessage::encode,ControlMessage::decode,ControlMessage::handle,Optional.of(NetworkDirection.PLAY_TO_CLIENT));
-    CHANNEL.registerMessage(
-        0,
-        ServerMessage.class,
-        ServerMessage::encode,
-        ServerMessage::decode,
-        ServerMessage::handle,
-        Optional.of(NetworkDirection.PLAY_TO_CLIENT));
-    CHANNEL.registerMessage(
-        1,
-        Action.class,
-        Action::encode,
-        Action::decode,
-        Action::handle,
-        Optional.of(NetworkDirection.PLAY_TO_SERVER));
+  public static void register(IEventBus bus) {
+    bus.addListener(RoadNetwork::registerPayloads);
+  }
+
+  private static void registerPayloads(RegisterPayloadHandlersEvent event) {
+    PayloadRegistrar registrar = event.registrar(PROTOCOL);
+    registrar.playToClient(ControlMessage.TYPE, ControlMessage.CODEC, ControlMessage::handle);
+    registrar.playToClient(ServerMessage.TYPE, ServerMessage.CODEC, ServerMessage::handle);
+    registrar.playToServer(Action.TYPE, Action.CODEC, Action::handle);
   }
 
   public static void send(ServerPlayer player, CompoundTag t) {
@@ -127,8 +149,8 @@ public final class RoadNetwork {
     boolean control=Set.of("open","result","delete","batchBarrier","syncReset","cancelTransfer").contains(t.getString("Type"))
         &&!com.sora.splineroads.client.RoadPreviewData.queued(t);
     for (var fragment : RoadWire.split(t))
-      if(control)CHANNEL.send(PacketDistributor.PLAYER.with(()->player),new ControlMessage(fragment));
-      else CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), new ServerMessage(fragment));
+      if(control)PacketDistributor.sendToPlayer(player,new ControlMessage(fragment));
+      else PacketDistributor.sendToPlayer(player, new ServerMessage(fragment));
   }
 
   public static void open(ServerPlayer p, CompoundTag payload) {
@@ -249,7 +271,7 @@ public final class RoadNetwork {
     tag.putUUID("Transfer",parts.get(0).id());if(road!=null)tag.putUUID("Id",road);send(player,tag);
   }
   private static int fragment(ServerPlayer player,RoadWire.Fragment fragment){
-    CHANNEL.send(PacketDistributor.PLAYER.with(()->player),new ServerMessage(fragment));
+    PacketDistributor.sendToPlayer(player,new ServerMessage(fragment));
     sentBytes+=fragment.bytes().length;sentFragments++;return fragment.bytes().length;
   }
   private static boolean ready(java.util.concurrent.CompletableFuture<?> value){return value!=null&&value.isDone();}
@@ -419,7 +441,7 @@ public final class RoadNetwork {
     var ids=new net.minecraft.nbt.ListTag();for(UUID id:replaced){var t=new CompoundTag();t.putUUID("Id",id);ids.add(t);}packet.put("Replaced",ids);
     var list=new net.minecraft.nbt.ListTag();var signs=new net.minecraft.nbt.ListTag();var data=RoadData.get(level);
     for(var road:roads){list.add(road.save());signs.add(data.smartSigns.packet(level,road.id()));}packet.put("Roads",list);packet.put("SignPackets",signs);packet.putLong("NodePos",node.asLong());
-    if(level.getBlockEntity(node) instanceof NodeEntity marker)packet.put("Node",marker.getUpdateTag());return packet;
+    if(level.getBlockEntity(node) instanceof NodeEntity marker)packet.put("Node",marker.getUpdateTag(level.registryAccess()));return packet;
   }
   public record PreparedBatch(CompoundTag packet,List<RoadWire.Fragment> fragments){}
   public static PreparedBatch prepareBatch(ServerLevel level,List<RoadRecord> roads,Set<UUID> replaced,BlockPos node){var packet=batchPacket(level,roads,replaced,node);return new PreparedBatch(packet,RoadWire.split(packet));}
@@ -534,11 +556,11 @@ public final class RoadNetwork {
 
   public static void requestRoadSync(){
     var level=net.minecraft.client.Minecraft.getInstance().level;if(level==null)return;
-    var tag=new CompoundTag();tag.putString("Action","roadSyncRetry");tag.putString("Dimension",level.dimension().location().toString());CHANNEL.sendToServer(new Action(tag));
+    var tag=new CompoundTag();tag.putString("Action","roadSyncRetry");tag.putString("Dimension",level.dimension().location().toString());PacketDistributor.sendToServer(new Action(tag));
   }
   public static void ackBatch(UUID id){
     var level=net.minecraft.client.Minecraft.getInstance().level;if(level==null)return;
-    var tag=new CompoundTag();tag.putString("Action","roadBatchAck");tag.putString("Dimension",level.dimension().location().toString());tag.putUUID("Batch",id);CHANNEL.sendToServer(new Action(tag));
+    var tag=new CompoundTag();tag.putString("Action","roadBatchAck");tag.putString("Dimension",level.dimension().location().toString());tag.putUUID("Batch",id);PacketDistributor.sendToServer(new Action(tag));
   }
   private static void resync(ServerPlayer player,Watching state){resync(player,state,false);}
   private static void resync(ServerPlayer player,Watching state,boolean resetRoads){
@@ -665,8 +687,8 @@ public final class RoadNetwork {
       case "interchangePreview" -> {
         requireGenerator(tool,t,data);
         if(!t.contains("Corridor"))throw new IllegalArgumentException("预览仅用于主辅路与双层同侧组合");
-        if(!t.hasUUID("Id")&&(!Arrays.equals(t.getLongArray("Points"),tool.getOrCreateTag().getLongArray("Points"))
-            ||!level.dimension().location().toString().equals(tool.getTag().getString("Dimension"))))throw new IllegalArgumentException("组合选点已失效，请重新选点");
+        if(!t.hasUUID("Id")&&(!Arrays.equals(t.getLongArray("Points"),ItemTag.of(tool).getLongArray("Points"))
+            ||!level.dimension().location().toString().equals(ItemTag.of(tool).getString("Dimension"))))throw new IllegalArgumentException("组合选点已失效，请重新选点");
         var inputs=Corridors.preview(level,player,t);
         // Explicit successful synchronous previews also supersede old ramp work.
         RoadPlanningJobs.cancel(player.getUUID());
@@ -675,15 +697,15 @@ public final class RoadNetwork {
       case "roundabout" -> { return RoundaboutTool.build(level,player,t,tool); }
       case "junctionRoad" -> {if(!tool.is(SplineRoads.CONNECTOR.get()))throw new IllegalArgumentException("请手持道路连接器");return JunctionRoads.build(level,player,t);}
       case "elevatedAccessPreview" -> {if(!(tool.getItem() instanceof RoadTool))throw new IllegalArgumentException("请手持道路连接器");ElevatedAccessRoads.requireSelection(player,tool,t);open(player,ElevatedAccessRoads.preview(level,player,t));return "";}
-      case "elevatedAccessBuild" -> {if(!(tool.getItem() instanceof RoadTool))throw new IllegalArgumentException("请手持道路连接器");ElevatedAccessRoads.requireSelection(player,tool,t);String result=ElevatedAccessRoads.build(level,player,t);for(String key:List.of("ElevatedSelection","SideMain","SidePoint","SideSelection","Start"))tool.getOrCreateTag().remove(key);return result;}
+      case "elevatedAccessBuild" -> {if(!(tool.getItem() instanceof RoadTool))throw new IllegalArgumentException("请手持道路连接器");ElevatedAccessRoads.requireSelection(player,tool,t);String result=ElevatedAccessRoads.build(level,player,t);for(String key:List.of("ElevatedSelection","SideMain","SidePoint","SideSelection","Start"))ItemTag.of(tool).remove(key);return result;}
       case "junctionSideRoad" -> {if(!tool.is(SplineRoads.CONNECTOR.get()))throw new IllegalArgumentException("请手持道路连接器");return OneSidedJunctions.buildRoadSelected(level,player,t,tool);}
       case "junction" -> {
         if (!(tool.getItem() instanceof RoundaboutTool) && !(tool.getItem() instanceof JunctionTool)) throw new IllegalArgumentException("请手持普通路口编辑器");
         if(!t.hasUUID("Id")&&!(tool.getItem() instanceof JunctionTool))throw new IllegalArgumentException("新建独立路口请使用普通路口编辑器");
-        if (!t.hasUUID("Id") && (!Arrays.equals(t.getLongArray("Points"),tool.getOrCreateTag().getLongArray("Points"))
-            || !level.dimension().location().toString().equals(tool.getTag().getString("Dimension"))))
+        if (!t.hasUUID("Id") && (!Arrays.equals(t.getLongArray("Points"),ItemTag.of(tool).getLongArray("Points"))
+            || !level.dimension().location().toString().equals(ItemTag.of(tool).getString("Dimension"))))
           throw new IllegalArgumentException("路口选点已失效，请重新选点");
-        String message=Junctions.build(level,player,t);tool.getOrCreateTag().remove("Points");return message;
+        String message=Junctions.build(level,player,t);ItemTag.of(tool).remove("Points");return message;
       }
       case "junctionDelete" -> {LaneDeletes.removeJunction(level,player,t);return "路口已整体删除，外部道路和端点保留";}
 
@@ -691,15 +713,15 @@ public final class RoadNetwork {
         requireGenerator(tool, t, data);
         if (!t.hasUUID("Id")
             && (!Arrays.equals(
-                    t.getLongArray("Points"), tool.getOrCreateTag().getLongArray("Points"))
+                    t.getLongArray("Points"), ItemTag.of(tool).getLongArray("Points"))
                 || !level
                     .dimension()
                     .location()
                     .toString()
-                    .equals(tool.getTag().getString("Dimension"))))
+                    .equals(ItemTag.of(tool).getString("Dimension"))))
           throw new IllegalArgumentException("立交端点选择失效，请重新选择");
         String message = Interchanges.build(level, player, t);
-        tool.getOrCreateTag().remove("Points");
+        ItemTag.of(tool).remove("Points");
         return message;
       }
       case "interchangeDelete", "interchangeDeleteRamps" -> {
@@ -726,29 +748,29 @@ public final class RoadNetwork {
         }
         var settings = RoadRecord.readSettings(settingsTag);
         if (id == null) {
-          if (!tool.getOrCreateTag().contains("Start")
-              || tool.getTag().getLong("Start") != a.asLong()
+          if (!ItemTag.of(tool).contains("Start")
+              || ItemTag.of(tool).getLong("Start") != a.asLong()
               || !level
                   .dimension()
                   .location()
                   .toString()
-                  .equals(tool.getTag().getString("Dimension")))
+                  .equals(ItemTag.of(tool).getString("Dimension")))
             throw new IllegalArgumentException("起点选择已失效，请重新选择两个端点");
         }
         settings=settings.options(settings.options().sidewalk(settings.options().sidewalk().smooth(true)));
         if (settings.style().ramp()) throw new IllegalArgumentException("道路连接器仅用于普通道路和高速道路");
-        var controlNodes=id==null?CurveControlNodes.validate(level,player,tool.getOrCreateTag(),settings,a,b):java.util.List.<BlockPos>of();
+        var controlNodes=id==null?CurveControlNodes.validate(level,player,ItemTag.of(tool),settings,a,b):java.util.List.<BlockPos>of();
         RoadRecord r = data.connect(level, player, a, b, settings, id, t.getBoolean("LevelEnds"),AutoJunctions.forced(t,"A"),AutoJunctions.forced(t,"B"),controlNodes);
-        tool.getOrCreateTag().remove(CurveControlNodes.KEY);
-        tool.getOrCreateTag().put("Settings", RoadRecord.writeSettings(com.sora.splineroads.core.RoadPreferences.fresh(settings)));
-        tool.getOrCreateTag().putInt("PreferencesVersion", 3);
+        ItemTag.of(tool).remove(CurveControlNodes.KEY);
+        ItemTag.of(tool).put("Settings", RoadRecord.writeSettings(com.sora.splineroads.core.RoadPreferences.fresh(settings)));
+        ItemTag.of(tool).putInt("PreferencesVersion", 3);
         if(ManualPlanner.ownsTool(player,tool)){
-          tool.getOrCreateTag().remove("Start");tool.getOrCreateTag().remove("CurveThrough");
+          ItemTag.of(tool).remove("Start");ItemTag.of(tool).remove("CurveThrough");
           return "道路已建成；请重新选择 A 和 B";
         }
         BlockPos next=AutoJunctions.center(data,r.a())!=null?r.a():r.b();
-        tool.getOrCreateTag().putLong("Start",next.asLong());
-        tool.getOrCreateTag().putString("Dimension", level.dimension().location().toString());
+        ItemTag.of(tool).putLong("Start",next.asLong());
+        ItemTag.of(tool).putString("Dimension", level.dimension().location().toString());
         if(AutoJunctions.center(data,next)!=null)return "道路和路口已更新；保留中心端点，可直接选择下一方向的外侧端点";
         return "道路已建成并自动清障；继续右键下一个端点即可续接";
       }

@@ -45,7 +45,7 @@ final class RoadPlanInputs implements AutoCloseable {
   static BlockEntity node(ServerLevel level,BlockPos pos){
     var entity=level.getBlockEntity(pos);var scope=CURRENT.get();
     if(scope!=null&&scope.recording&&scope.level==level&&!scope.nodes.containsKey(pos.asLong()))
-      scope.nodes.put(pos.asLong(),entity==null?null:entity.saveWithFullMetadata());
+      scope.nodes.put(pos.asLong(),entity==null?null:entity.saveWithFullMetadata(net.minecraft.core.RegistryAccess.EMPTY));
     return entity;
   }
   static int height(ServerLevel level,int x,int z){
@@ -71,7 +71,7 @@ final class RoadPlanInputs implements AutoCloseable {
       }
       for(var entry:nodes.entrySet()){
         var entity=level.getBlockEntity(BlockPos.of(entry.getKey()));
-        if(!Objects.equals(entry.getValue(),entity==null?null:entity.saveWithFullMetadata()))
+        if(!Objects.equals(entry.getValue(),entity==null?null:entity.saveWithFullMetadata(net.minecraft.core.RegistryAccess.EMPTY)))
           throw new IllegalArgumentException("预览后端点已改变，请重新预览");
       }
     }

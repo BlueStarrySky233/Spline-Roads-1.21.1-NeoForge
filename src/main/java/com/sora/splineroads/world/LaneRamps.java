@@ -861,7 +861,7 @@ public final class LaneRamps {
       if(!LanePointCodec.ref(link.from()).equals(t.getCompound("From"))||!LanePointCodec.ref(link.to()).equals(t.getCompound("To")))throw new IllegalArgumentException("不能在编辑时替换车道点引用");
       return;
     }
-    var state=tool.getOrCreateTag();
+    var state=ItemTag.of(tool);
     if(!state.contains("LaneFrom")||!state.contains("LaneTo")||!state.getCompound("LaneFrom").equals(t.getCompound("From"))||!state.getCompound("LaneTo").equals(t.getCompound("To"))||!p.level().dimension().location().toString().equals(state.getString("LaneDimension")))throw new IllegalArgumentException("匝道选择已失效，请先选汇出点，再选汇入点");
   }
   public static boolean tunnelEnd(Map<UUID,RoadRecord> all,LanePoints.Ref ref){
@@ -1060,7 +1060,7 @@ public final class LaneRamps {
     var staging=work.snapshot.changed(removed,planned).records();r=staging.get(id);
     var checked=new CompoundTag();checked.put("Road",r.header());checked.putLong("WorldRevision",data.index.revision());checked.putInt("FromSignature",signature(data,from));checked.putInt("ToSignature",signature(data,to));checked.putUUID("Token",token);checked.putLong("Request",t.getLong("Request"));
     if(t.hasUUID("Id")){checked.putUUID("Id",id);checked.putInt("Signature",t.getInt("Signature"));}
-    RoadPlanningBudget.check();tool.getOrCreateTag().put("LanePreview",checked);
+    RoadPlanningBudget.check();ItemTag.of(tool).put("LanePreview",checked);
     var reply=new CompoundTag();reply.putString("Kind","laneRampCheck");reply.putString("ResolvedPath",generated.path().name());reply.putLong("Request",t.getLong("Request"));reply.put("Road",r.header());reply.putUUID("Token",checked.getUUID("Token"));reply.putDouble("TargetOffset",LaneTopology.metadata(r).link().targetOffset());reply.putDouble("GradeLimit",gradeLimit(staging,LaneTopology.metadata(r).link()));
     var finalLink=LaneTopology.metadata(r).link();var finalMesh=r.mesh();
     var metrics=LaneRampGrade.report(finalMesh,fixedApproach(finalMesh,staging,finalLink,true),
@@ -1079,7 +1079,7 @@ public final class LaneRamps {
     return reply;
   }
   public static String build(ServerPlayer player,ItemStack tool,CompoundTag t){
-    selection(player,tool,t);var checked=tool.getOrCreateTag().getCompound("LanePreview");
+    selection(player,tool,t);var checked=ItemTag.of(tool).getCompound("LanePreview");
     if(!checked.hasUUID("Token")||!t.hasUUID("Token")||!checked.getUUID("Token").equals(t.getUUID("Token"))||checked.hasUUID("Id")!=t.hasUUID("Id")||t.hasUUID("Id")&&!checked.getUUID("Id").equals(t.getUUID("Id")))throw new IllegalArgumentException("请先检查当前设置的预览");
     var r=RoadRecord.load(checked.getCompound("Road"));var link=LaneTopology.metadata(r).link();var data=RoadData.get(player.serverLevel());
     if(checked.getLong("WorldRevision")!=data.index.revision())throw new IllegalArgumentException("道路几何已在预览后改变，请重新预览完整接头");

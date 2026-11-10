@@ -13,27 +13,30 @@ import java.util.concurrent.atomic.*;
 import java.util.function.BiFunction;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.chunk.ChunkRenderDispatcher;
-import net.minecraft.client.renderer.chunk.ChunkRenderDispatcher.CompiledChunk;
-import net.minecraft.client.renderer.chunk.ChunkRenderDispatcher.RenderChunk;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher.CompiledSection;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher.RenderSection;
 import net.minecraft.core.BlockPos;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.model.data.ModelData;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.model.data.ModelData;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RenderFrameEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /** Actual chunk-upload receipts decide which surface ranges the road VBO draws.
  * Vanilla road-bearing chunks upload to isolated allocations; the buffer map,
  * compiled metadata and receipt change together on the render thread. Optional
  * renderers use their own atomic GPU installation through a separate adapter.
  */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
+@EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
 public final class RoadTerrainHandoff {
   static final RoadHandoffState<Map<Integer,ModelData>> STATE=new RoadHandoffState<>(Map::isEmpty);
   private static final Map<Object,Build> BUILDS=Collections.synchronizedMap(new WeakHashMap<>());
   private static final ThreadLocal<Build> BUILD=new ThreadLocal<>();
-  private static final Map<ChunkRenderDispatcher,ArrayDeque<Runnable>> DEFERRED=new WeakHashMap<>();
+  private static final Map<SectionRenderDispatcher,ArrayDeque<Runnable>> DEFERRED=new WeakHashMap<>();
   private static final RoadTerrainUploadBudget BUDGET=new RoadTerrainUploadBudget();
   // Native renderers can coalesce a dirty notification into an in-flight build.
   // Keep the publication obligation until its actual replacement is uploaded.
@@ -59,8 +62,8 @@ public final class RoadTerrainHandoff {
     }
   }
   private RoadTerrainHandoff(){}
-  @SubscribeEvent public static void renderFrame(TickEvent.RenderTickEvent event){
-    if(event.phase==TickEvent.Phase.START){beginUploadFrame();refreshStale();}
+  @SubscribeEvent public static void renderFrame(RenderFrameEvent.Pre event){
+    beginUploadFrame();refreshStale();
   }
   /** A renderer can drain its native queue more than once in one frame. */
   static void beginUploadFrame(){BUDGET.begin();RoadEmbeddiumHandoff.beginUploadFrame();}
@@ -81,7 +84,7 @@ public final class RoadTerrainHandoff {
       var resident=STATE.resident(section);if(resident==null||resident.source()==STATE.source(section))continue;
       if(!visible(section,resident)){STATE.invalidAllocation(section,resident);continue;}
       if(now>=due){Object owner=resident.owner().get();boolean requested;
-        if(owner instanceof RenderChunk chunk){chunk.setDirty(false);requested=true;}else requested=RoadEmbeddiumHandoff.refresh(owner,section);
+        if(owner instanceof SectionRenderDispatcher.RenderSection chunk){chunk.setDirty(false);requested=true;}else requested=RoadEmbeddiumHandoff.refresh(owner,section);
         if(requested)due=now+500_000_000L;
       }
       REFRESH.put(section,due);
@@ -103,10 +106,10 @@ public final class RoadTerrainHandoff {
   }
   private static boolean visible(Section section,RoadHandoffState.Resident resident){
     Object owner=resident.owner().get();
-    if(owner instanceof RenderChunk chunk){
+    if(owner instanceof SectionRenderDispatcher.RenderSection chunk){
       if(!section.equals(section(chunk.getOrigin())))return false;
       if(!(resident.upload() instanceof Map<?,?> buffers))return false;
-      if(chunk.getCompiledChunk().isEmpty(RenderType.solid()))return false;
+      if(chunk.getCompiled().isEmpty(RenderType.solid()))return false;
       var installed=((RoadChunkBuffers)chunk).splineroads$buffers();
       for(var entry:buffers.entrySet())if(!(entry.getValue() instanceof VertexBuffer v)||v.isInvalid()||installed.get(entry.getKey())!=v)return false;
       return true;
@@ -132,7 +135,7 @@ public final class RoadTerrainHandoff {
     var map=build.ticket.source.data();if(build.cells!=null&&map.containsKey(cell)&&!RoadTerrainModels.coverOnly(map.get(cell)))build.cells.set(cell);return map;
   }
   static boolean inBuild(){return BUILD.get()!=null;}
-  public static void beginVanilla(Object task,RenderChunk chunk,AtomicBoolean cancelled,ChunkRenderDispatcher dispatcher){
+  public static void beginVanilla(Object task,SectionRenderDispatcher.RenderSection chunk,AtomicBoolean cancelled,SectionRenderDispatcher dispatcher){
     BUILD.remove();if(cancelled.get())return;
     vanillaSeen=true;
     var build=new Build(STATE.begin(chunk,section(chunk.getOrigin())),cancelled,((RoadChunkUploads)dispatcher).splineroads$uploads(),null);
@@ -166,23 +169,23 @@ public final class RoadTerrainHandoff {
   }
   private static boolean valid(Build build){
     if(build.closed||build.cancelled.get()||!STATE.current(build.ticket))return false;
-    Object owner=build.ticket.owner();return !(owner instanceof RenderChunk chunk)||build.ticket.section.equals(section(chunk.getOrigin()));
+    Object owner=build.ticket.owner();return !(owner instanceof SectionRenderDispatcher.RenderSection chunk)||build.ticket.section.equals(section(chunk.getOrigin()));
   }
   private static boolean completeCells(Build build){
     return !build.ticket.terrain||build.ticket.source==null||(build.cells==null?0:build.cells.cardinality())==build.requiredCells;
   }
   private static void retry(Build build){
     build.cancelled.set(true);Object owner=build.ticket.owner();
-    if(owner instanceof RenderChunk chunk&&build.ticket.section.equals(section(chunk.getOrigin())))chunk.setDirty(false);
+    if(owner instanceof SectionRenderDispatcher.RenderSection chunk&&build.ticket.section.equals(section(chunk.getOrigin())))chunk.setDirty(false);
   }
-  public static CompletableFuture<Void> uploadVanilla(ChunkRenderDispatcher dispatcher,BufferBuilder.RenderedBuffer data,
+  public static CompletableFuture<Void> uploadVanilla(SectionRenderDispatcher dispatcher,com.mojang.blaze3d.vertex.MeshData data,
       VertexBuffer live,Object task,RenderType layer){
-    var build=BUILDS.get(task);if(build==null)return dispatcher.uploadChunkLayer(data,live);
+    var build=BUILDS.get(task);if(build==null)return dispatcher.uploadSectionLayer(data,live);
     build.requested++;
     var completion=new CompletableFuture<Void>();
     Runnable upload=new Runnable(){public void run(){
-      if(!valid(build)||!completeCells(build)||live.isInvalid()){data.release();retry(build);completion.complete(null);return;}
-      if(build.ticket.staged&&!BUDGET.claim(data.drawState().bufferSize(),true)){
+      if(!valid(build)||!completeCells(build)||live.isInvalid()){data.close();retry(build);completion.complete(null);return;}
+      if(build.ticket.staged&&!BUDGET.claim((int)RoadUploadArena.bytes(data),true)){
         DEFERRED.computeIfAbsent(dispatcher,k->new ArrayDeque<>()).add(this);return;
       }
       VertexBuffer target=build.ticket.staged?new VertexBuffer(VertexBuffer.Usage.STATIC):live;
@@ -198,11 +201,11 @@ public final class RoadTerrainHandoff {
     build.uploads.add(upload);return completion;
   }
   /** Promoting deferred work once per native drain avoids same-frame queue spins. */
-  public static void beginUploads(ChunkRenderDispatcher dispatcher){
+  public static void beginUploads(SectionRenderDispatcher dispatcher){
     var waiting=DEFERRED.remove(dispatcher);
     if(waiting!=null)((RoadChunkUploads)dispatcher).splineroads$uploads().addAll(waiting);
   }
-  public static void discardUploads(ChunkRenderDispatcher dispatcher){
+  public static void discardUploads(SectionRenderDispatcher dispatcher){
     var waiting=DEFERRED.remove(dispatcher);if(waiting==null)return;
     var queue=((RoadChunkUploads)dispatcher).splineroads$uploads();
     synchronized(BUILDS){for(var build:BUILDS.values())if(build.uploads==queue){build.cancelled.set(true);var owner=build.ticket.owner();if(owner!=null)STATE.release(owner);}}
@@ -225,8 +228,8 @@ public final class RoadTerrainHandoff {
     synchronized(STATE){
       if(!valid(build)||!completeCells(build)||build.requested!=build.uploaded
           ||!build.ticket.owners().isEmpty()&&(!build.staged.containsKey(RenderType.solid())
-              ||!(compiled instanceof CompiledChunk c)||c.isEmpty(RenderType.solid()))){retry(build);return false;}
-      var chunk=(RenderChunk)build.ticket.owner();
+              ||!(compiled instanceof SectionRenderDispatcher.CompiledSection c)||c.isEmpty(RenderType.solid()))){retry(build);return false;}
+      var chunk=(SectionRenderDispatcher.RenderSection)build.ticket.owner();
       if(!build.ticket.staged){reference.set(compiled);STATE.commit(build.ticket,Map.of());build.committed=true;return true;}
       var buffers=((RoadChunkBuffers)chunk).splineroads$buffers();
       List<VertexBuffer> previous=new ArrayList<>();

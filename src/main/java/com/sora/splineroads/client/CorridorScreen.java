@@ -195,8 +195,9 @@ public final class CorridorScreen extends Screen {
   @Override public boolean isPauseScreen(){return false;}
   @Override public void removed(){WORKER.cancel();generation++;if(computing)dirty=true;computing=false;super.removed();}
   @Override public void onClose(){WORKER.cancel();generation++;if(capture())stash();ClientRoads.preview=null;ClientRoads.nodePreviews=List.of();super.onClose();}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float partial){
-    renderBackground(g);g.fill(x,y,x+w,y+h,0xEF182530);g.drawString(font,title,x+12,y+10,0xFFFFFF,false);super.render(g,mx,my,partial);
+    renderTransparentBackground(g);g.fill(x,y,x+w,y+h,0xEF182530);g.drawString(font,title,x+12,y+10,0xFFFFFF,false);super.render(g,mx,my,partial);
     for(var f:fields.values())g.drawString(font,f.getMessage(),f.getX(),f.getY()-9,0xC8DAE5,false);
     if(w>=540){int px=x+312,py=y+55,pw=w-324,ph=h-123;g.fill(px,py,px+pw,py+ph,0xFF09161F);
       if(plan!=null){

@@ -9,6 +9,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 
 public final class RoadDeleteScreen extends Screen {
+  // 1.21.1 Screen.render calls renderBackground, which blurs the world behind the preview.
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   private final CompoundTag payload;
   private Button remove;
   private String status = "删除所选整段道路、护栏和桥墩；保留端点";

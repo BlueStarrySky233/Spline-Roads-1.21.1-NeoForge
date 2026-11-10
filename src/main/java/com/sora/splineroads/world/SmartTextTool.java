@@ -27,5 +27,5 @@ public final class SmartTextTool extends Item {
     }catch(IllegalArgumentException e){p.displayClientMessage(Component.literal(e.getMessage()),false);}}
   @Override public InteractionResult useOn(UseOnContext c){if(c.getPlayer() instanceof ServerPlayer p)open(p);return InteractionResult.sidedSuccess(c.getLevel().isClientSide);}
   @Override public InteractionResultHolder<ItemStack> use(Level l,Player p,InteractionHand h){if(p instanceof ServerPlayer s)open(s);return InteractionResultHolder.sidedSuccess(p.getItemInHand(h),l.isClientSide);}
-  @Override public void appendHoverText(ItemStack s,Level l,List<Component> lines,TooltipFlag f){lines.add(Component.literal("右键智能标牌填写文字；右键车道指示牌设置通行／禁行"));lines.add(Component.literal("Shift＋右键清除临时选择，不删除已保存文字"));}
+  @Override public void appendHoverText(ItemStack s,net.minecraft.world.item.Item.TooltipContext context,List<Component> lines,TooltipFlag f){var l=context.level();lines.add(Component.literal("右键智能标牌填写文字；右键车道指示牌设置通行／禁行"));lines.add(Component.literal("Shift＋右键清除临时选择，不删除已保存文字"));}
 }

@@ -8,8 +8,8 @@ import net.minecraft.core.*;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockAndTintGetter;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.client.model.BakedModelWrapper;
-import net.minecraftforge.client.model.data.*;
+import net.neoforged.neoforge.client.model.BakedModelWrapper;
+import net.neoforged.neoforge.client.model.data.*;
 
 /** Road blocks and slabs use the road mesh's four-block world UVs and asphalt tint. */
 final class RoadAsphaltModel extends BakedModelWrapper<BakedModel> {
@@ -33,7 +33,7 @@ final class RoadAsphaltModel extends BakedModelWrapper<BakedModel> {
           default -> {u=(Math.floorMod(pos.getX(),4)+x)/4;v=(Math.floorMod(pos.getY(),4)+y)/4;}
         }
         vertices[at+3]=0xffdcdcdc;
-        vertices[at+4]=Float.floatToRawIntBits(sprite.getU(u*16));vertices[at+5]=Float.floatToRawIntBits(sprite.getV(v*16));
+        vertices[at+4]=Float.floatToRawIntBits(sprite.getU((float)u));vertices[at+5]=Float.floatToRawIntBits(sprite.getV((float)v));
       }
       result.add(new BakedQuad(vertices,q.getTintIndex(),q.getDirection(),sprite,q.isShade()));
     }return List.copyOf(result);

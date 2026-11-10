@@ -7,6 +7,7 @@ import net.minecraft.nbt.*;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.*;
 import java.util.*;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 /** Saved main/frontage relationship and shared client/server configuration. */
 public final class Corridors {

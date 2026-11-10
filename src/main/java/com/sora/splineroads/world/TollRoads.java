@@ -49,7 +49,7 @@ public final class TollRoads {
     if(old!=null&&!old.toll().path().isEmpty())spec=old.toll();
     var t=new CompoundTag();t.putString("Kind","toll");t.putString("Dimension",level.dimension().location().toString());t.putLongArray("Points",points);t.put("Spec",TollCodec.write(spec));t.putString("Adjust","NONE");
     var connections=new ListTag();java.util.stream.Stream.concat(data.index.atNode(BlockPos.of(points[0])).stream(),data.index.atNode(BlockPos.of(points[1])).stream()).distinct().filter(v->!v.equals(id)).sorted().forEach(v->connections.add(data.index.roads.get(v).record.header()));t.put("Connections",connections);
-    t.put("SnapshotA",a.saveWithoutMetadata());t.put("SnapshotB",b.saveWithoutMetadata());t.putLong("Revision",data.index.revision());
+    t.put("SnapshotA",a.saveWithoutMetadata(net.minecraft.core.RegistryAccess.EMPTY));t.put("SnapshotB",b.saveWithoutMetadata(net.minecraft.core.RegistryAccess.EMPTY));t.putLong("Revision",data.index.revision());
     if(old!=null){t.putUUID("Id",id);t.putUUID("Owner",old.owner());}t.putString("SelectionStamp",TollInputs.stamp(t));return t;
   }
   private static Settings port(RoadData data,BlockPos at,V axis,UUID station,Settings fallback){
@@ -99,7 +99,7 @@ public final class TollRoads {
       if(outside.size()>1)throw new IllegalArgumentException("收费站每端只能外接一条完整道路");
       for(var other:outside){checkPort(spec,a,other.record,at,InterchangeConnectors.eligible(data,other.record));stage(data,level,player,at,target,other.record,built,removed);}
       Node old=a?original.a():original.b();if(old.position().distance(target.position())>1e-6){
-        var marker=RoadData.requireNode(level,at,player);BlockPos to=pos(target);selected.add(to);moves.add(new RoadData.NodeMove(at,to,target,marker.saveWithoutMetadata()));
+        var marker=RoadData.requireNode(level,at,player);BlockPos to=pos(target);selected.add(to);moves.add(new RoadData.NodeMove(at,to,target,marker.saveWithoutMetadata(level.registryAccess())));
       }
     }
     BlockPos a=fit.movedA()>1e-6?pos(spec.a()):oldA,b=fit.movedB()>1e-6?pos(spec.b()):oldB;

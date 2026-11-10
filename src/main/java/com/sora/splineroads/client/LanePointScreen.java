@@ -87,8 +87,9 @@ public final class LanePointScreen extends Screen {
   public void failed(String s){status=s;pending=false;buttons();}
   @Override public void onClose(){if(drawing!=null)drawing.cancel(false);super.onClose();}
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);
+    renderTransparentBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);
     g.drawString(font,"蓝色车道点 · "+(point.automatic()?"自动尽头":"手动创建"),x+12,y+14,0x66b5ff,false);
     g.fill(viewX-1,viewY-1,viewX+viewW+1,viewY+viewH+1,0xff647a87);
     g.fill(viewX,viewY,viewX+viewW,viewY+viewH,0xff28382e);

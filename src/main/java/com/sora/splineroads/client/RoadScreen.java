@@ -20,6 +20,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 
 public final class RoadScreen extends Screen {
+  // 1.21.1 Screen.render calls renderBackground, which blurs the world behind the preview.
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   private final CompoundTag payload;
   private final boolean node;
   private Options options = Options.DEFAULT;
@@ -720,7 +722,8 @@ public final class RoadScreen extends Screen {
       world.active=!parent.failureRoads.isEmpty();
     }
     @Override public void tick(){super.tick();if(world!=null)world.active=!parent.failureRoads.isEmpty();}
-    @Override public void render(GuiGraphics g,int mx,int my,float dt){
+    @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){
       g.fill(12,12,width-12,height-12,0xf015222e);
       g.drawString(font,"道路未保存：完整诊断",24,24,0xffcf8c,false);
       String message=com.sora.splineroads.core.RoadConflictIds.display(parent.serverFailure);
@@ -735,7 +738,7 @@ public final class RoadScreen extends Screen {
   @Override
   public void tick() {
     super.tick();
-    fields.values().forEach(EditBox::tick);
+    
     if (debounce > 0 && --debounce == 0) refresh();
     // The open-editor packet can precede its road/index snapshot. Adopt that
     // authoritative saved geometry when it arrives, without requiring a page

@@ -15,9 +15,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.*;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.common.util.BlockSnapshot;
-import net.minecraftforge.event.level.BlockEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.common.util.BlockSnapshot;
+import net.neoforged.neoforge.event.level.BlockEvent;
 
 /** Public connector facade for shared road transactions. The old journal engine below
  * is retained only to recover interrupted pre-1.0.41 saves and verify migration. */
@@ -177,9 +177,9 @@ public final class RailbedBuildQueue {
     }
     void protect(BlockPos pos,BlockState current,BlockState target){if(current.equals(target))return;if(player==null)return;
       if(!level.mayInteract(player,pos)||!player.mayUseItemAt(pos,net.minecraft.core.Direction.UP,player.getMainHandItem()))throw new IllegalArgumentException("铁路施工范围受保护："+pos.toShortString());
-      if(!current.isAir()){boolean rejected;protectionProbe=true;try{rejected=MinecraftForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level,pos,current,player));}finally{protectionProbe=false;}if(rejected)throw new IllegalArgumentException("铁路施工被区域保护拒绝："+pos.toShortString());}
+      if(!current.isAir()){boolean rejected;protectionProbe=true;try{rejected=NeoForge.EVENT_BUS.post(new BlockEvent.BreakEvent(level,pos,current,player)).isCanceled();}finally{protectionProbe=false;}if(rejected)throw new IllegalArgumentException("铁路施工被区域保护拒绝："+pos.toShortString());}
       var snapshot=BlockSnapshot.create(level.dimension(),level,pos);var event=new BlockEvent.EntityPlaceEvent(snapshot,current,player){@Override public BlockState getPlacedBlock(){return target;}@Override public BlockState getState(){return target;}};
-      if(MinecraftForge.EVENT_BUS.post(event))throw new IllegalArgumentException("铁路施工被区域保护拒绝："+pos.toShortString());
+      if(NeoForge.EVENT_BUS.post(event).isCanceled())throw new IllegalArgumentException("铁路施工被区域保护拒绝："+pos.toShortString());
     }
     void publish(){if(preview){if(inputs!=null)inputs.validate(level);done=true;result.complete(next);return;}journal=new RailbedStore.Pending(id,old,next,before,after);data.railbeds.pending.put(id,journal);data.setDirty();published=true;write=after.keySet().iterator();if(built!=null){data.index.put(built);RoadNetwork.broadcastRoad(level,built.record);}else{data.index.remove(id);RoadNetwork.broadcastDelete(level,id);}revision=data.index.contentRevision();}
     void fail(RuntimeException e){if(rollback){done=true;result.completeExceptionally(e);message("铁路回退中断，已保留恢复日志："+e.getMessage());return;}failure=e;if(published){rollback=true;notify=null;write=before.keySet().iterator();restoreIndex();message("铁路施工正在回退："+e.getMessage());}else{done=true;result.completeExceptionally(e);message(e.getMessage());}}

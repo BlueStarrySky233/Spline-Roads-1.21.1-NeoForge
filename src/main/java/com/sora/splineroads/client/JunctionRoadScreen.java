@@ -51,6 +51,7 @@ public final class JunctionRoadScreen extends Screen {
   public void failed(String text){pending=false;status=text;apply.active=true;}
   @Override public void onClose(){JunctionScreen.clear();ClientRoads.preview=null;ClientRoads.nodePreviews=List.of();super.onClose();}
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){g.fill(x,y,x+288,y+238,0xed15212c);g.drawString(font,title,x+12,y+12,0xffffff,false);
     for(var f:fields.values())g.drawString(font,f.getMessage(),f.getX(),f.getY()-11,0xbbd3dc,false);
     super.render(g,mx,my,dt);

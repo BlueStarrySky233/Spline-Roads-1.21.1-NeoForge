@@ -69,7 +69,7 @@ public final class RoadTool extends Item {
     if (!(context.getPlayer() instanceof ServerPlayer player)) return InteractionResult.PASS;
     BlockPos pos = endpointAtHit(context);
     var level = player.serverLevel();
-    CompoundTag tool = context.getItemInHand().getOrCreateTag();
+    CompoundTag tool = ItemTag.of(context.getItemInHand());
     try (var workChunks = RoadWorkChunks.open(level)) {
       if(!player.isShiftKeyDown()){var marker=AttachedPointTool.pick(player);if(marker!=null){OneSidedJunctions.selectedAttached(player,tool,marker.road(),marker.point());return InteractionResult.CONSUME;}}
       if(!player.isShiftKeyDown()&&!(level.getBlockEntity(pos) instanceof NodeEntity)){
@@ -351,10 +351,10 @@ public final class RoadTool extends Item {
   @Override
   public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
     ItemStack stack = player.getItemInHand(hand);
-    if(!level.isClientSide&&!player.isShiftKeyDown()){var server=(ServerPlayer)player;var marker=AttachedPointTool.pick(server);if(marker!=null){try{OneSidedJunctions.selectedAttached(server,stack.getOrCreateTag(),marker.road(),marker.point());}catch(IllegalArgumentException e){player.displayClientMessage(Component.literal(e.getMessage()),false);}return InteractionResultHolder.success(stack);}}
+    if(!level.isClientSide&&!player.isShiftKeyDown()){var server=(ServerPlayer)player;var marker=AttachedPointTool.pick(server);if(marker!=null){try{OneSidedJunctions.selectedAttached(server,ItemTag.of(stack),marker.road(),marker.point());}catch(IllegalArgumentException e){player.displayClientMessage(Component.literal(e.getMessage()),false);}return InteractionResultHolder.success(stack);}}
     if (player.isShiftKeyDown()) {
       if (!level.isClientSide) {
-        stack.getOrCreateTag().remove("ElevatedSelection");stack.getOrCreateTag().remove("SideSelection");stack.getOrCreateTag().remove("SideMain");stack.getOrCreateTag().remove("SidePoint");stack.getOrCreateTag().remove("Start");stack.getOrCreateTag().remove(CurveControlNodes.KEY);
+        ItemTag.of(stack).remove("ElevatedSelection");ItemTag.of(stack).remove("SideSelection");ItemTag.of(stack).remove("SideMain");ItemTag.of(stack).remove("SidePoint");ItemTag.of(stack).remove("Start");ItemTag.of(stack).remove(CurveControlNodes.KEY);
         CompoundTag request = kind("reset");
 
         RoadNetwork.open((ServerPlayer) player, request);
@@ -364,7 +364,7 @@ public final class RoadTool extends Item {
       CompoundTag request = kind("resume");
 
       openClient.accept(request);
-    } else if (!stack.getOrCreateTag().contains("Start")) {
+    } else if (!ItemTag.of(stack).contains("Start")) {
       var road = pick((ServerPlayer) player);
       if (road != null) {
         try{requireTool(road.record);openRoad((ServerPlayer) player, road.record, false);}
@@ -397,7 +397,7 @@ public final class RoadTool extends Item {
   }
 
   @Override
-  public void appendHoverText(ItemStack s, Level l, List<Component> lines, TooltipFlag flag) {
+  public void appendHoverText(ItemStack s, net.minecraft.world.item.Item.TooltipContext context, List<Component> lines, TooltipFlag flag) {var l=context.level();
     lines.add(
         Component.translatable(
             "tooltip.splineroads.connector"));

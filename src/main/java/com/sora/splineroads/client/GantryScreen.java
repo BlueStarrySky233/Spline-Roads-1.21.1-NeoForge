@@ -61,8 +61,9 @@ public final class GantryScreen extends Screen {
   }
   public void failed(String message){pending=false;status=message;active();}
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(x,y,x+284,y+282,0xf012212c);
+    renderTransparentBackground(g);g.fill(x,y,x+284,y+282,0xf012212c);
     g.drawString(font,edit.independent()?"独立龙门架 · 不受道路龙门架开关影响":"龙门架 "+(edit.slot()+1)+" / "+payload.getInt("Count")+" · 单独编辑",x+10,y+12,0xffffff,false);
     g.drawString(font,mode()==SmartSigns.Mode.LANE_INDICATOR?"用文字编辑器右键指示牌设置通行／禁行":"文字用文字编辑器填写；限速和车道指示样式支持双向",x+10,y+128,0xbbd3dc,false);
     g.drawString(font,"沿路位移 / 格",x+10,y+29,0xbbd3dc,false);g.drawString(font,"横梁净高 / 格",x+148,y+29,0xbbd3dc,false);

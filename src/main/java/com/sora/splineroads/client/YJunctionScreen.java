@@ -36,7 +36,8 @@ public final class YJunctionScreen extends Screen {
 
   public void failed(String s){pending=false;status=s;apply.active=plan!=null;}
   @Override public boolean isPauseScreen(){return false;}
-  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);g.drawString(font,"Y 字路口 · A 双向 / B 出向 / C 入向",x+12,y+12,0xffffff,false);
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);g.drawString(font,"Y 字路口 · A 双向 / B 出向 / C 入向",x+12,y+12,0xffffff,false);
     g.fill(x+12,y+55,x+w-12,y+h-123,0xff252f36);
     if(plan!=null){var ms=List.of(plan.stem(),plan.outbound(),plan.inbound());double minX=ms.stream().mapToDouble(m->m.min().x()).min().orElse(0),maxX=ms.stream().mapToDouble(m->m.max().x()).max().orElse(1),minZ=ms.stream().mapToDouble(m->m.min().z()).min().orElse(0),maxZ=ms.stream().mapToDouble(m->m.max().z()).max().orElse(1);double scale=Math.min((w-70)/Math.max(1,maxX-minX),(h-198)/Math.max(1,maxZ-minZ));double cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
       for(int i=0;i<ms.size();i++)for(var s:ms.get(i).samples()){int px=x+w/2+(int)((s.center().x()-cx)*scale),py=y+65+(h-188)/2+(int)((s.center().z()-cz)*scale);int r=Math.max(1,(int)(s.halfWidth()*scale));g.fill(px-r,py-r,px+r+1,py+r+1,i==0?0xff9eabb2:i==1?0xff4bd7a5:0xffeeb268);}

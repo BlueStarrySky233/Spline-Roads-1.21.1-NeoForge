@@ -12,7 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import java.util.*;
 import java.util.function.Predicate;
 
@@ -199,7 +199,7 @@ public final class SmartSignClient {
     cache.put(s.key(),value);bytes+=value.bytes();failed.remove(s.key());return value;
   }
 
-  public static void render(RenderLevelStageEvent event){if(!RoadSignVisibility.enabled()){frameCandidates=frameDrawn=frameBakes=frameCulled=frameCandidateVisits=gpuBytes=residentPlates=streamedPlates=pendingUploadBytes=0;pendingUploads=false;frameCpuMs=0;return;}long frameStart=System.nanoTime();var mc=Minecraft.getInstance();if(mc.level==null)return;if(resourcesDirty){resourcesDirty=false;clearCache();release(previewMesh);TollNameRenderer.clear();if(preview!=null){try{previewMesh=bake(preview,previewRoad,null);}catch(IllegalArgumentException ex){previewMesh=null;}}}var pos=event.getCamera().getPosition();V eye=new V(pos.x,pos.y,pos.z);var buffers=mc.renderBuffers().bufferSource();var used=new HashSet<RenderType>();var pose=event.getPoseStack();boolean editor=mc.player!=null&&(mc.player.getMainHandItem().is(SplineRoads.TEXT_EDITOR.get())||mc.player.getOffhandItem().is(SplineRoads.TEXT_EDITOR.get()));var visible=editor?new ArrayList<Baked>():null;
+  public static void render(RenderLevelStageEvent event){if(!RoadSignVisibility.enabled()){frameCandidates=frameDrawn=frameBakes=frameCulled=frameCandidateVisits=gpuBytes=residentPlates=streamedPlates=pendingUploadBytes=0;pendingUploads=false;frameCpuMs=0;return;}long frameStart=System.nanoTime();var mc=Minecraft.getInstance();if(mc.level==null)return;if(resourcesDirty){resourcesDirty=false;clearCache();release(previewMesh);TollNameRenderer.clear();if(preview!=null){try{previewMesh=bake(preview,previewRoad,null);}catch(IllegalArgumentException ex){previewMesh=null;}}}var pos=event.getCamera().getPosition();V eye=new V(pos.x,pos.y,pos.z);var buffers=mc.renderBuffers().bufferSource();var used=new HashSet<RenderType>();var pose=WorldRenderPose.of(event);boolean editor=mc.player!=null&&(mc.player.getMainHandItem().is(SplineRoads.TEXT_EDITOR.get())||mc.player.getOffhandItem().is(SplineRoads.TEXT_EDITOR.get()));var visible=editor?new ArrayList<Baked>():null;
     var candidates=visibleCandidates(eye,event.getFrustum()::isVisible);var keys=new HashSet<Key>();
     frameCandidates=candidates.size();frameBakes=0;bakeDeadline=System.nanoTime()+2_000_000L;
     var drawn=new ArrayList<Baked>();var lights=new ArrayList<Integer>();
@@ -235,7 +235,7 @@ public final class SmartSignClient {
     used.forEach(buffers::endBatch);
     if(editor&&mc.player!=null){var look=mc.player.getLookAngle();V ray=new V(look.x,look.y,look.z);Baked best=null;Layout selected=null;Field field=null;double nearest=96;
       for(var b:visible)for(var l:b.views()){double denominator=ray.dot(l.front());if(denominator>=-1e-5)continue;double d=l.origin().add(l.front().mul(SmartSigns.TEXT)).sub(eye).dot(l.front())/denominator;if(d<0||d>nearest)continue;V hit=eye.add(ray.mul(d)).sub(l.origin());double x=hit.dot(l.right()),y=hit.y();for(var f:l.fields())if(f.editable()&&Math.abs(x-f.x())<=f.width()/2&&Math.abs(y-f.y())<=f.height()/2){best=b;selected=l;field=f;nearest=d;}}
-      if(best!=null){var f=field;var l=selected;var consumer=buffers.getBuffer(RenderType.lines());pose.pushPose();pose.translate(-eye.x(),-eye.y(),-eye.z());V[] corners={l.at(f.x()-f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()-f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005)};for(int i=0;i<4;i++){V a=corners[i],b=corners[(i+1)%4],n=b.sub(a).mul(1/a.distance(b));for(V v:List.of(a,b))consumer.vertex(pose.last().pose(),(float)v.x(),(float)v.y(),(float)v.z()).color(255,219,85,255).normal(pose.last().normal(),(float)n.x(),(float)n.y(),(float)n.z()).endVertex();}pose.popPose();buffers.endBatch(RenderType.lines());}
+      if(best!=null){var f=field;var l=selected;var consumer=buffers.getBuffer(RenderType.lines());pose.pushPose();pose.translate(-eye.x(),-eye.y(),-eye.z());V[] corners={l.at(f.x()-f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()-f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005)};for(int i=0;i<4;i++){V a=corners[i],b=corners[(i+1)%4],n=b.sub(a).mul(1/a.distance(b));for(V v:List.of(a,b))consumer.addVertex(pose.last().pose(),(float)v.x(),(float)v.y(),(float)v.z()).setColor(255,219,85,255).setNormal(pose.last(),(float)n.x(),(float)n.y(),(float)n.z());}pose.popPose();buffers.endBatch(RenderType.lines());}
     }
     double elapsed=(System.nanoTime()-frameStart)/1e6;frameCpuMs=frameCpuMs==0?elapsed:frameCpuMs*.9+elapsed*.1;
   }

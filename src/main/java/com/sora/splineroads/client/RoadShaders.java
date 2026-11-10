@@ -3,14 +3,15 @@ import com.sora.splineroads.SplineRoads;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import net.minecraft.client.renderer.*;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterShadersEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterShadersEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 import java.io.IOException;
 /** VBO world solids need fog from the fully camera-relative vertex, not entity-local
  * components. Shader packs still receive the standard intercepted entity program. */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID,bus=Mod.EventBusSubscriber.Bus.MOD,value=Dist.CLIENT)
+@EventBusSubscriber(modid=SplineRoads.ID,bus=EventBusSubscriber.Bus.MOD,value=Dist.CLIENT)
 public final class RoadShaders {
   private static ShaderInstance worldSolid,worldOpaque,worldAsphalt;
   private static final java.util.Map<ResourceLocation,Boolean> opaqueTextures=new java.util.HashMap<>();

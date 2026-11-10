@@ -14,6 +14,8 @@ import net.minecraft.nbt.*;
 import net.minecraft.network.chat.Component;
 
 public final class InterchangeScreen extends Screen {
+  // 1.21.1 Screen.render calls renderBackground, which blurs the world behind the preview.
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   private static final Map<Integer, CompoundTag> drafts = new HashMap<>();
   private static CompoundTag draft;
   private static final LatestPlanningTask<InterchangePlanner.Plan> WORKER =
@@ -788,7 +790,7 @@ public final class InterchangeScreen extends Screen {
 
   @Override
   public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
-    renderBackground(g);
+    renderTransparentBackground(g);
     g.fill(left, top, left + panel, top + panelHeight, 0xEF182530);
     g.drawString(font, title, left + 12, top + 10, 0xFFFFFF, false);
     if(page==0&&doubleDetails&&options.preset()==InterchangePlanner.Preset.DOUBLE_TRUMPET)g.fill(left+control+20,top+26,left+panel-8,top+panelHeight-64,0xFF09161F);

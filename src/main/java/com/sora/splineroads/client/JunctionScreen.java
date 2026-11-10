@@ -199,8 +199,9 @@ public final class JunctionScreen extends Screen {
     mapTexture=minecraft.getTextureManager().register("sr_junction_map",new net.minecraft.client.renderer.texture.DynamicTexture(pixels));
   }
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(6,5,Math.min(width-6,306),height-5,0xe51b2530);g.drawString(font,title,16,13,0xffffff);super.render(g,mx,my,dt);
+    renderTransparentBackground(g);g.fill(6,5,Math.min(width-6,306),height-5,0xe51b2530);g.drawString(font,title,16,13,0xffffff);super.render(g,mx,my,dt);
     for(Label l:labels)g.drawString(font,l.text(),l.x(),l.y(),0xd6e2ed,false);
     g.drawString(font,font.plainSubstrByWidth(status,Math.max(280,width-30)),16,height-19,plan==null?0xffa799:0xb8d6cb,false);
     if(plan!=null&&width>510)drawPlan(g,318,38,width-330,height-76);

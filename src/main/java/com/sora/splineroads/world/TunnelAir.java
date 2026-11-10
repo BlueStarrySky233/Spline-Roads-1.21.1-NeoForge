@@ -11,6 +11,6 @@ public final class TunnelAir extends AirBlock implements LiquidBlockContainer {
   public TunnelAir(){super(Properties.of().noCollission().noOcclusion().replaceable().strength(-1,3600000).noLootTable());}
   /** Logical empty space, independent of Minecraft's section storage air flag. */
   public static boolean isAirSpace(BlockState state){return state.isAir()||state.getBlock() instanceof TunnelAir;}
-  @Override public boolean canPlaceLiquid(BlockGetter world,BlockPos pos,BlockState state,Fluid fluid){return false;}
+  @Override public boolean canPlaceLiquid(net.minecraft.world.entity.player.Player player,BlockGetter world,BlockPos pos,BlockState state,Fluid fluid){return false;}
   @Override public boolean placeLiquid(LevelAccessor world,BlockPos pos,BlockState state,FluidState fluid){return false;}
 }

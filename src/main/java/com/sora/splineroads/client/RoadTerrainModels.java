@@ -17,18 +17,19 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.level.BlockAndTintGetter;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.ChunkRenderTypeSet;
-import net.minecraftforge.client.event.ModelEvent;
-import net.minecraftforge.client.model.BakedModelWrapper;
-import net.minecraftforge.client.model.data.*;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.ChunkRenderTypeSet;
+import net.neoforged.neoforge.client.event.ModelEvent;
+import net.neoforged.neoforge.client.model.BakedModelWrapper;
+import net.neoforged.neoforge.client.model.data.*;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /** Terrain models consume immutable snapshots. Streaming is per road/chunk, never a road
  * geometry invalidation. Active tiles live with loaded chunks; unloaded tiles use bounded LRU.
  */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT,bus=Mod.EventBusSubscriber.Bus.MOD)
+@EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT,bus=EventBusSubscriber.Bus.MOD)
 public final class RoadTerrainModels {
   private static final ModelProperty<List<BakedQuad>> QUADS=new ModelProperty<>();
   private static final ModelProperty<List<BakedQuad>> COVERS=new ModelProperty<>();
@@ -90,7 +91,7 @@ public final class RoadTerrainModels {
     // A non-loading cache lookup distinguishes streamed-out chunks from data
     // that can still receive terrain publication and participate in handoff.
     return level!=null&&level.getChunkSource().getChunk(chunk.x(),chunk.z(),
-        net.minecraft.world.level.chunk.ChunkStatus.FULL,false)!=null;
+        net.minecraft.world.level.chunk.status.ChunkStatus.FULL,false)!=null;
   }
   static boolean regionLoaded(com.sora.splineroads.core.RoadRenderMesh.Section region){
     for(int x=0;x<4;x++)for(int z=0;z<4;z++)if(loaded(new Chunk(region.x()*4+x,region.z()*4+z)))return true;
@@ -102,8 +103,8 @@ public final class RoadTerrainModels {
       // A saved road can cross retained or player-replaced ordinary blocks.
       // They must emit the same per-cell road publication as SR proxies;
       // otherwise completeCells rejects the entire native section indefinitely.
-      if(!id.getNamespace().equals(SplineRoads.ID))return new TerrainModel(original,true);
-      String name=id.getPath();
+      if(!location.id().getNamespace().equals(SplineRoads.ID))return new TerrainModel(original,true);
+      String name=location.id().getPath();
       if(name.equals("road_block")||name.equals("road_slab"))return new TerrainModel(new RoadAsphaltModel(original),true);
       if(!Set.of("road_collision","road_infill","road_node").contains(name))return original;
       return new TerrainModel(original,name.equals("road_collision"));
@@ -170,13 +171,13 @@ public final class RoadTerrainModels {
       Map<Integer,List<BakedQuad>> replaced=new LinkedHashMap<>();
       cells.forEach((cell,quads)->replaced.put(cell,quads.stream().map(q->{
         var before=q.getSprite();var after=sprites.getOrDefault(before,next.asphalt());
-        boolean sameUV=before.getU(0)==after.getU(0)&&before.getU(16)==after.getU(16)
-            &&before.getV(0)==after.getV(0)&&before.getV(16)==after.getV(16);
+        boolean sameUV=before.getU(0)==after.getU(0)&&before.getU(1)==after.getU(1)
+            &&before.getV(0)==after.getV(0)&&before.getV(1)==after.getV(1);
         int[] v=sameUV?q.getVertices():q.getVertices().clone();
         if(!sameUV)for(int i=0;i<4;i++){
-          double u=(Float.intBitsToFloat(v[i*8+4])-before.getU(0))/(before.getU(16)-before.getU(0));
-          double t=(Float.intBitsToFloat(v[i*8+5])-before.getV(0))/(before.getV(16)-before.getV(0));
-          v[i*8+4]=Float.floatToRawIntBits(after.getU(u*16));v[i*8+5]=Float.floatToRawIntBits(after.getV(t*16));
+          double u=(Float.intBitsToFloat(v[i*8+4])-before.getU(0))/(before.getU(1)-before.getU(0));
+          double t=(Float.intBitsToFloat(v[i*8+5])-before.getV(0))/(before.getV(1)-before.getV(0));
+          v[i*8+4]=Float.floatToRawIntBits(after.getU((float)u));v[i*8+5]=Float.floatToRawIntBits(after.getV((float)t));
         }
         return new BakedQuad(v,q.getTintIndex(),q.getDirection(),after,q.isShade());
       }).toList()));sections.put(section,Collections.unmodifiableMap(replaced));
@@ -507,8 +508,8 @@ public final class RoadTerrainModels {
       boolean solid=polygon.paint()||polygon.texture()==RoadSurface.Texture.WALK_TACTILE;
       double u=solid?.25+.5*(p.x()-cell.x()):p.x()/scale-baseU;
       double v=solid?.25+.5*(p.z()-cell.z()):p.z()/scale-baseV;
-      data[j+4]=Float.floatToRawIntBits(sprite.getU(Math.max(0,Math.min(1,u))*16));
-      data[j+5]=Float.floatToRawIntBits(sprite.getV(Math.max(0,Math.min(1,v))*16));
+      data[j+4]=Float.floatToRawIntBits(sprite.getU((float)(Math.max(0,Math.min(1,u)))));
+      data[j+5]=Float.floatToRawIntBits(sprite.getV((float)(Math.max(0,Math.min(1,v)))));
       data[j+6]=0; // Vanilla/Forge applies actual per-vertex sky/block lighting, not fullbright.
       data[j+7]=normal;
     }
@@ -571,11 +572,11 @@ public final class RoadTerrainModels {
     }
     return Set.copyOf(result);
   }
-  @Mod.EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
+  @EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
   public static final class Streaming {
-    @SubscribeEvent public static void loaded(net.minecraftforge.event.level.ChunkEvent.Load event){changed(event);}
-    @SubscribeEvent public static void unloaded(net.minecraftforge.event.level.ChunkEvent.Unload event){changed(event);}
-    private static void changed(net.minecraftforge.event.level.ChunkEvent event) {
+    @SubscribeEvent public static void loaded(net.neoforged.neoforge.event.level.ChunkEvent.Load event){changed(event);}
+    @SubscribeEvent public static void unloaded(net.neoforged.neoforge.event.level.ChunkEvent.Unload event){changed(event);}
+    private static void changed(net.neoforged.neoforge.event.level.ChunkEvent event) {
       if(!(event.getLevel() instanceof net.minecraft.client.multiplayer.ClientLevel level))return;
       long packed=event.getChunk().getPos().toLong();var mc=Minecraft.getInstance();
       mc.execute(()->{if(mc.level==level){ClientRoads.chunkChanged(packed);chunkChanged(new Chunk((int)packed,(int)(packed>>32)));}});
@@ -631,7 +632,9 @@ public final class RoadTerrainModels {
     @Override public List<BakedQuad> getQuads(BlockState state,Direction side,RandomSource random,ModelData data,RenderType layer) {
       List<BakedQuad> base=originalVisible?super.getQuads(state,side,random,data,layer):List.of();
       var material=data.get(com.sora.splineroads.world.RoadFillEntity.MATERIAL);var cap=data.get(com.sora.splineroads.world.RoadFillEntity.CAP);
-      if(material!=null&&cap!=null){
+      // Only block entities provide fills. A road_collision block has no entity and its own
+      // blockstate variant already renders the material, so it must not be synthesized here.
+      if(material!=null&&!material.isAir()&&cap!=null){
         // The retained material is a delegate, not another terrain carrier.
         // Passing this infill's ModelData into its wrapper would recurse.
         var model=markerModel(Minecraft.getInstance().getBlockRenderer().getBlockModel(material));
@@ -667,8 +670,7 @@ public final class RoadTerrainModels {
     }
     @Override public boolean isCustomRenderer(){return originalVisible&&super.isCustomRenderer();}
     @Override public boolean useAmbientOcclusion(){return !originalVisible||super.useAmbientOcclusion();}
-    @Override public boolean useAmbientOcclusion(BlockState state){return !originalVisible||super.useAmbientOcclusion(state);}
-    @Override public boolean useAmbientOcclusion(BlockState state,RenderType layer){return !originalVisible||super.useAmbientOcclusion(state,layer);}
+    @Override public net.neoforged.neoforge.common.util.TriState useAmbientOcclusion(BlockState state,ModelData data,RenderType layer){return originalVisible?net.neoforged.neoforge.common.util.TriState.DEFAULT:net.neoforged.neoforge.common.util.TriState.FALSE;}
   }
   static List<BakedQuad> capQuads(List<BakedQuad> quads,double cap){
     return quads.stream().map(q->{int[] packed=q.getVertices().clone();for(int i=0;i<4;i++){int at=i*8+1;packed[at]=Float.floatToRawIntBits((float)(Float.intBitsToFloat(packed[at])*cap-(cap>=1?.002:0)));}return new BakedQuad(packed,q.getTintIndex(),q.getDirection(),q.getSprite(),q.isShade(),q.hasAmbientOcclusion());}).toList();

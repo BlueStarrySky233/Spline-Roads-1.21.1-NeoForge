@@ -81,7 +81,7 @@ public final class InterchangeTool extends Item {
     if (placeholder(player)) return InteractionResult.CONSUME;
     try (var workChunks = RoadWorkChunks.open(player.serverLevel())) {
       var level = player.serverLevel();
-      var tool = context.getItemInHand().getOrCreateTag();
+      var tool = ItemTag.of(context.getItemInHand());
       var hitRoad=RoadTool.pick(player);var hit=context.getClickLocation();
       var attached=hitRoad==null?null:AttachedPointTool.nearest(hitRoad,new com.sora.splineroads.core.RoadGeometry.V(hit.x,hit.y,hit.z));
       if(attached!=null){
@@ -154,7 +154,7 @@ public final class InterchangeTool extends Item {
     if (placeholder(who)) return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
     if (who.isShiftKeyDown()) {
       if (!level.isClientSide) {
-        stack.getOrCreateTag().remove("Points");
+        ItemTag.of(stack).remove("Points");
         CompoundTag t = new CompoundTag();
         t.putString("Kind", "interchangeReset");
         RoadNetwork.open((ServerPlayer) who, tagged(t));
@@ -169,13 +169,13 @@ public final class InterchangeTool extends Item {
         var hit = RoadTool.pick(player);
         if (hit != null && hit.record.assembly() != null) edit(player);
         else {
-          long[] points = stack.getOrCreateTag().getLongArray("Points");
+          long[] points = ItemTag.of(stack).getLongArray("Points");
           if (points.length == arms
               && level
                   .dimension()
                   .location()
                   .toString()
-                  .equals(stack.getTag().getString("Dimension")))
+                  .equals(ItemTag.of(stack).getString("Dimension")))
             RoadNetwork.open(
                 player, tagged(Interchanges.payload(player.serverLevel(), player, points, null)));
         }
@@ -186,7 +186,7 @@ public final class InterchangeTool extends Item {
   }
 
   @Override
-  public void appendHoverText(ItemStack s, Level l, List<Component> lines, TooltipFlag f) {
+  public void appendHoverText(ItemStack s, net.minecraft.world.item.Item.TooltipContext context, List<Component> lines, TooltipFlag f) {var l=context.level();
     if (!available()) {
       lines.add(Component.literal("预留物品 · 暂未开放建造"));
       lines.add(Component.literal(arms == 5 ? "规划：A/B＋C/D＋E 端点" : "规划：A/B＋C/D＋E/F"));

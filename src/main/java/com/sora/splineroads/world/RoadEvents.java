@@ -5,15 +5,16 @@ import com.sora.splineroads.net.RoadNetwork;
 import java.util.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.level.*;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.level.*;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(modid = SplineRoads.ID)
+@EventBusSubscriber(modid = SplineRoads.ID)
 public final class RoadEvents {
   @SubscribeEvent
-  public static void infill(net.minecraftforge.event.entity.player.PlayerInteractEvent.RightClickBlock e) {
+  public static void infill(net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.RightClickBlock e) {
     if(!(e.getItemStack().getItem() instanceof net.minecraft.world.item.BlockItem item)||e.getFace()==null)return;
     var level=e.getLevel();var fill=item.getBlock().defaultBlockState();
     var target=e.getPos().relative(e.getFace());
@@ -32,13 +33,13 @@ public final class RoadEvents {
     if(fill==null||!RoadBlocks.canInfill(level,target,fill))return;
     if(!e.getEntity().mayBuild()||!e.getEntity().mayUseItemAt(target,e.getFace(),e.getItemStack()))return;
     if(level instanceof ServerLevel server&&e.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
-      var snapshot=net.minecraftforge.common.util.BlockSnapshot.create(level.dimension(),level,target);
+      var snapshot=net.neoforged.neoforge.common.util.BlockSnapshot.create(level.dimension(),level,target);
       final var placed=fill;
       var placeEvent=new BlockEvent.EntityPlaceEvent(snapshot,level.getBlockState(target.relative(e.getFace().getOpposite())),player){
         @Override public net.minecraft.world.level.block.state.BlockState getPlacedBlock(){return placed;}
         @Override public net.minecraft.world.level.block.state.BlockState getState(){return placed;}
       };
-      if(net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(placeEvent))return;
+      if(net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(placeEvent).isCanceled())return;
       if(!RoadData.get(server).infill(server,target,fill,player))return;
       if(!player.isCreative())e.getItemStack().shrink(1);
       level.playSound(null,target,fill.getSoundType(level,target,player).getPlaceSound(),net.minecraft.sounds.SoundSource.BLOCKS,1,.8f);
@@ -98,11 +99,11 @@ public final class RoadEvents {
   }
 
   @SubscribeEvent
-  public static void tick(net.minecraftforge.event.TickEvent.ServerTickEvent e){
-    if(e.phase==net.minecraftforge.event.TickEvent.Phase.END){RoadNetwork.tick(e.getServer());ManualPlanner.tick();RailbedBuildQueue.tick(e.getServer());if(e.getServer().getTickCount()%100==0)RoadData.expirePreviews();}
+  public static void tick(net.neoforged.neoforge.event.tick.ServerTickEvent.Post e){
+    {RoadNetwork.tick(e.getServer());ManualPlanner.tick();RailbedBuildQueue.tick(e.getServer());if(e.getServer().getTickCount()%100==0)RoadData.expirePreviews();}
   }
   @SubscribeEvent
-  public static void stop(net.minecraftforge.event.server.ServerStoppingEvent e){ManualPlanner.stop();RailbedBuildQueue.stop();RoadSplitter.clear();RoadData.clearPreviews();RoadNetwork.stop();}
+  public static void stop(net.neoforged.neoforge.event.server.ServerStoppingEvent e){ManualPlanner.stop();RailbedBuildQueue.stop();RoadSplitter.clear();RoadData.clearPreviews();RoadNetwork.stop();}
   @SubscribeEvent
   public static void logout(PlayerEvent.PlayerLoggedOutEvent e) {
     if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)ManualPlanner.forget(p);RoadNetwork.forget(e.getEntity().getUUID());RoadData.forgetPreviews(e.getEntity().getUUID());

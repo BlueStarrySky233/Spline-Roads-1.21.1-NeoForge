@@ -15,7 +15,7 @@ public final class CurveControlNodes {
     return add(level,player,tool,pos,false);
   }
   static String add(ServerLevel level,ServerPlayer player,ItemStack tool,BlockPos pos,boolean map){
-    var tag=tool.getOrCreateTag();
+    var tag=ItemTag.of(tool);
     if(!tag.contains("Start")||!level.dimension().location().toString().equals(tag.getString("Dimension")))throw new IllegalArgumentException("请先普通右键选择起点，再用左 Alt＋右键添加控制点");
     if(pos.asLong()==tag.getLong("Start"))throw new IllegalArgumentException("起点不能同时作为控制点");
     if(!map&&player.distanceToSqr(pos.getCenter())>64)throw new IllegalArgumentException("控制点离玩家太远");

@@ -47,7 +47,7 @@ public final class StreetTerrainCapture {
       // Treat only this natural surface-cover change as equivalent; height,
       // every other block, fluid and block-entity payload stay fingerprinted.
       var fingerprintState=state.is(Blocks.GRASS_BLOCK)?Blocks.DIRT.defaultBlockState():state;
-      hash=(hash^Block.getId(fingerprintState))*0x100000001b3L;hash=(hash^(entity==null?0:entity.saveWithFullMetadata().hashCode()))*0x100000001b3L;
+      hash=(hash^Block.getId(fingerprintState))*0x100000001b3L;hash=(hash^(entity==null?0:entity.saveWithFullMetadata(net.minecraft.core.RegistryAccess.EMPTY).hashCode()))*0x100000001b3L;
       if(!state.getFluidState().isEmpty())ground=Ground.WATER;
       else if(RoadBlocks.isCollider(state)||entity instanceof NodeEntity){if(ground==Ground.LAND)ground=Ground.ROAD;}
       else if(entity!=null||!natural(state))ground=Ground.OBSTACLE;
@@ -57,7 +57,7 @@ public final class StreetTerrainCapture {
   static boolean natural(BlockState state){
     var block=state.getBlock();return state.isAir()||block==Blocks.GRASS_BLOCK||state.is(BlockTags.DIRT)||state.is(BlockTags.BASE_STONE_OVERWORLD)
         ||state.is(BlockTags.SAND)||block==Blocks.GRAVEL||block==Blocks.CLAY||block==Blocks.SNOW||block==Blocks.SNOW_BLOCK||block==Blocks.BEDROCK
-        ||block==Blocks.GRASS||block==Blocks.TALL_GRASS||block==Blocks.FERN||block==Blocks.LARGE_FERN||state.is(BlockTags.FLOWERS);
+        ||block==Blocks.SHORT_GRASS||block==Blocks.TALL_GRASS||block==Blocks.FERN||block==Blocks.LARGE_FERN||state.is(BlockTags.FLOWERS);
   }
-  private static boolean plant(BlockState state){var b=state.getBlock();return b==Blocks.GRASS||b==Blocks.TALL_GRASS||b==Blocks.FERN||b==Blocks.LARGE_FERN||state.is(BlockTags.FLOWERS);}
+  private static boolean plant(BlockState state){var b=state.getBlock();return b==Blocks.SHORT_GRASS||b==Blocks.TALL_GRASS||b==Blocks.FERN||b==Blocks.LARGE_FERN||state.is(BlockTags.FLOWERS);}
 }

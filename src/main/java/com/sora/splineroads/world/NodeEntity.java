@@ -4,6 +4,7 @@ import com.sora.splineroads.SplineRoads;
 import com.sora.splineroads.core.RoadGeometry.*;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -48,8 +49,8 @@ public final class NodeEntity extends BlockEntity {
   }
 
   @Override
-  protected void saveAdditional(CompoundTag t) {
-    super.saveAdditional(t);
+  protected void saveAdditional(CompoundTag t, HolderLookup.Provider registries) {
+    super.saveAdditional(t, registries);
     t.put("Node", RoadRecord.writeNode(node()));
     t.putBoolean("HeightExplicit", heightExplicit);
     t.putBoolean("PlannerHeading",plannerHeading);
@@ -59,8 +60,8 @@ public final class NodeEntity extends BlockEntity {
   }
 
   @Override
-  public void load(CompoundTag t) {
-    super.load(t);
+  public void loadAdditional(CompoundTag t, HolderLookup.Provider registries) {
+    super.loadAdditional(t, registries);
     if (t.contains("Node")) {
       Node n = RoadRecord.readNode(t.getCompound("Node"));
       offsetX = n.position().x() - worldPosition.getX() - .5;
@@ -80,8 +81,8 @@ public final class NodeEntity extends BlockEntity {
   }
 
   @Override
-  public CompoundTag getUpdateTag() {
-    return saveWithoutMetadata();
+  public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+    return saveWithoutMetadata(registries);
   }
 
   @Override

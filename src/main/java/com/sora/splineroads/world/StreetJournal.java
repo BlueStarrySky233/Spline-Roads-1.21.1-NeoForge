@@ -14,7 +14,7 @@ final class StreetJournal {
   static final class Snapshot {
     final Map<Long,BlockState> blocks=new LinkedHashMap<>();final Map<Long,CompoundTag> entities=new HashMap<>();final Map<Long,RoadData.StreetLedger> ledger=new HashMap<>();
     Snapshot(){}
-    Snapshot(ServerLevel level,Collection<Long> keys){var data=RoadData.get(level);for(long key:keys){var p=BlockPos.of(key);var state=level.getBlockState(p);blocks.put(key,state);var be=state.hasBlockEntity()?level.getBlockEntity(p):null;if(be!=null)entities.put(key,be.saveWithFullMetadata());ledger.put(key,data.streetLedger(key));}}
+    Snapshot(ServerLevel level,Collection<Long> keys){var data=RoadData.get(level);for(long key:keys){var p=BlockPos.of(key);var state=level.getBlockState(p);blocks.put(key,state);var be=state.hasBlockEntity()?level.getBlockEntity(p):null;if(be!=null)entities.put(key,be.saveWithFullMetadata(level.registryAccess()));ledger.put(key,data.streetLedger(key));}}
     void keep(Set<Long> keys){blocks.keySet().retainAll(keys);entities.keySet().retainAll(keys);ledger.keySet().retainAll(keys);}
     boolean cellEquals(Snapshot other,long key){return Objects.equals(blocks.get(key),other.blocks.get(key))&&Objects.equals(entities.get(key),other.entities.get(key));}
     CompoundTag save(){

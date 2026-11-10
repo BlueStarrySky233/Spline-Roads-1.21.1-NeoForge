@@ -38,7 +38,7 @@ public final class RoadRemover extends Item {
   }
 
   @Override
-  public void appendHoverText(ItemStack s, Level l, List<Component> lines, TooltipFlag flag) {
+  public void appendHoverText(ItemStack s, net.minecraft.world.item.Item.TooltipContext context, List<Component> lines, TooltipFlag flag) {var l=context.level();
     lines.add(Component.translatable("tooltip.splineroads.remover"));
   }
 }

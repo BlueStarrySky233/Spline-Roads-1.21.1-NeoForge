@@ -4,12 +4,13 @@ import com.sora.splineroads.SplineRoads;
 import java.util.EnumSet;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.Heightmap;
-import net.minecraftforge.event.level.ChunkEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.level.ChunkEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 
 /** Refresh old saved precipitation heights after dynamic road blocks became solid. */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID)
+@EventBusSubscriber(modid=SplineRoads.ID)
 public final class RoadWeather {
   @SubscribeEvent public static void loaded(ChunkEvent.Load event){refresh(event.getChunk());}
   public static boolean refresh(ChunkAccess chunk){

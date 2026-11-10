@@ -36,8 +36,8 @@ final class RoadSignalBatch {
   private VertexBuffer buffer(int light){
     if(plateBuffer!=null&&plateLight==light)return plateBuffer;
     var builder=PLATE_ARENA.begin(DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP);
-    for(var data:data().values())for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];builder.vertex(value(data,i),value(data,i+1),value(data,i+2)).color((color>>16)&255,(color>>8)&255,color&255,255).uv(value(data,i+4),value(data,i+5)).uv2(light).endVertex();}
-    var built=builder.end();var next=new VertexBuffer(VertexBuffer.Usage.STATIC);try{next.bind();next.upload(built);}catch(RuntimeException|Error failure){next.close();throw failure;}finally{VertexBuffer.unbind();}
+    for(var data:data().values())for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];builder.addVertex(value(data,i),value(data,i+1),value(data,i+2)).setColor((color>>16)&255,(color>>8)&255,color&255,255).setUv(value(data,i+4),value(data,i+5)).setLight(light);}
+    var built=builder.build();var next=new VertexBuffer(VertexBuffer.Usage.STATIC);try{next.bind();next.upload(built);}catch(RuntimeException|Error failure){next.close();throw failure;}finally{VertexBuffer.unbind();}
     close();plateBuffer=next;plateLight=light;plateUploads++;return next;
   }
   /** Static opaque artwork shares one shader/material setup; only origin matrices change. */
@@ -109,13 +109,13 @@ final class RoadSignalBatch {
   void emitPlate(PoseStack pose,MultiBufferSource buffers,V camera,RenderType type,Set<RenderType> used,int light){
     pose.pushPose();pose.translate(origin.x()-camera.x(),origin.y()-camera.y(),origin.z()-camera.z());
     try{var transform=pose.last().pose();var target=buffers.getBuffer(type);used.add(type);
-      for(var data:data().values())for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];target.vertex(transform,value(data,i),value(data,i+1),value(data,i+2)).color((color>>16)&255,(color>>8)&255,color&255,255).uv(value(data,i+4),value(data,i+5)).uv2(light).endVertex();}
+      for(var data:data().values())for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];target.addVertex(transform,value(data,i),value(data,i+1),value(data,i+2)).setColor((color>>16)&255,(color>>8)&255,color&255,255).setUv(value(data,i+4),value(data,i+5)).setLight(light);}
     }finally{pose.popPose();}
   }
   void emit(PoseStack pose,MultiBufferSource buffers,V camera,Function<Texture,RenderType> types,Set<RenderType> used,int light){
     pose.pushPose();pose.translate(origin.x()-camera.x(),origin.y()-camera.y(),origin.z()-camera.z());var transform=pose.last().pose();var normals=pose.last().normal();
     try{for(var entry:data().entrySet()){var type=Objects.requireNonNull(types.apply(entry.getKey()),"Missing SR signal material: "+entry.getKey());used.add(type);var target=buffers.getBuffer(type);var data=entry.getValue();
-      for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];target.vertex(transform,value(data,i),value(data,i+1),value(data,i+2)).color((color>>16)&255,(color>>8)&255,color&255,255).uv(value(data,i+4),value(data,i+5)).overlayCoords(OverlayTexture.NO_OVERLAY).uv2(light).normal(normals,value(data,i+6),value(data,i+7),value(data,i+8)).endVertex();}
+      for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];target.addVertex(transform,value(data,i),value(data,i+1),value(data,i+2)).setColor((color>>16)&255,(color>>8)&255,color&255,255).setUv(value(data,i+4),value(data,i+5)).setOverlay(OverlayTexture.NO_OVERLAY).setLight(light).setNormal(pose.last(),value(data,i+6),value(data,i+7),value(data,i+8));}
     }}finally{pose.popPose();}
   }
 }

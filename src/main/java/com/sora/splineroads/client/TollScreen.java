@@ -131,13 +131,14 @@ public final class TollScreen extends Screen {
     var mesh=checked.mesh();double dx=Math.max(1,mapMaxX-mapMinX),dz=Math.max(1,mapMaxZ-mapMinZ);
     double scale=Math.min((w-24)/dx,(h-50)/dz),ox=x+(w-dx*scale)/2,oz=y+28+(h-50-dz*scale)/2;
     g.enableScissor(x+2,y+23,x+w-2,y+h-2);g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);
-    var buffer=Tesselator.getInstance().getBuilder();buffer.begin(VertexFormat.Mode.TRIANGLES,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
-    for(var f:mapFaces){var points=f.points();int c=f.color();for(int i=1;i+1<points.size();i++)for(var v:List.of(points.get(0),points.get(i),points.get(i+1)))buffer.vertex(pose,(float)(ox+(v.x()-mapMinX)*scale),(float)(oz+(v.z()-mapMinZ)*scale),0).color((c>>16)&255,(c>>8)&255,c&255,255).endVertex();}
-    BufferUploader.drawWithShader(buffer.end());RenderSystem.disableBlend();RenderSystem.enableCull();
+    var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
+    for(var f:mapFaces){var points=f.points();int c=f.color();for(int i=1;i+1<points.size();i++)for(var v:List.of(points.get(0),points.get(i),points.get(i+1)))buffer.addVertex(pose,(float)(ox+(v.x()-mapMinX)*scale),(float)(oz+(v.z()-mapMinZ)*scale),0).setColor((c>>16)&255,(c>>8)&255,c&255,255);}
+    BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();
     for(int i=0;i<2;i++){var v=(i==0?mesh.first():mesh.last()).center();String label=i==0?"A":"B";int px=(int)(ox+(v.x()-mapMinX)*scale),pz=(int)(oz+(v.z()-mapMinZ)*scale);g.drawString(font,label,Math.max(x+4,Math.min(x+w-font.width(label)-4,px)),Math.max(y+25,Math.min(y+h-font.lineHeight-4,pz)),0xffffff,false);}g.disableScissor();
   }
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(left,top,width-12,height-8,0xEC172128);g.drawString(font,"SR · 收费站",left+10,top+9,0xFFFFFF);map(g);super.render(g,mx,my,dt);for(var l:labels)g.drawString(font,l.text(),l.x(),l.y(),0xDCE5E8);
+    renderTransparentBackground(g);g.fill(left,top,width-12,height-8,0xEC172128);g.drawString(font,"SR · 收费站",left+10,top+9,0xFFFFFF);map(g);super.render(g,mx,my,dt);for(var l:labels)g.drawString(font,l.text(),l.x(),l.y(),0xDCE5E8);
     try{var spec=TollCodec.read(payload.getCompound("Spec"));var n=TollPlanner.lengths(spec);g.drawString(font,font.plainSubstrByWidth(String.format(Locale.ROOT,"当前 %.1f / 最低 %.1f / 尚缺 %.1f 格",n.current(),n.minimum(),n.deficit()),panel-20),left+10,row(185),n.deficit()>1e-5?0xFFBB77:0xA7E4B1);g.drawString(font,font.plainSubstrByWidth("收费单元："+spec.config().forward().units()+(spec.config().twoWay()?" + "+spec.config().backward().units():"")+" · "+adjustLabel(payload.getString("Adjust")),panel-20),left+10,row(200),0xC1D2DA);
     }catch(IllegalArgumentException e){token=null;if(build!=null)build.active=false;}
     g.enableScissor(left+8,row(222),left+panel-8,height-60);g.drawWordWrap(font,Component.literal(status),left+10,row(222),panel-20,0xFFE5B1);g.disableScissor();

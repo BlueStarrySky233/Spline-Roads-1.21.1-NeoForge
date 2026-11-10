@@ -100,7 +100,7 @@ public final class ElevatedAccessRoads {
   }
   private static CompoundTag selection(CompoundTag t){var key=new CompoundTag();for(String field:List.of("Main","Point","Endpoint","MainFirst","Dimension"))if(t.contains(field))key.put(field,t.get(field).copy());return key;}
   private static CompoundTag key(CompoundTag t){var key=selection(t);for(String field:List.of("Id","Settings","Signature","TargetSignature"))if(t.contains(field))key.put(field,t.get(field).copy());return key;}
-  public static void requireSelection(ServerPlayer player,net.minecraft.world.item.ItemStack tool,CompoundTag t){if(!t.hasUUID("Id")&&!tool.getOrCreateTag().getCompound("ElevatedSelection").equals(selection(t)))throw new IllegalArgumentException("高架选点已改变，请重新选择");}
+  public static void requireSelection(ServerPlayer player,net.minecraft.world.item.ItemStack tool,CompoundTag t){if(!t.hasUUID("Id")&&!ItemTag.of(tool).getCompound("ElevatedSelection").equals(selection(t)))throw new IllegalArgumentException("高架选点已改变，请重新选择");}
 
   public static CompoundTag preview(ServerLevel level,ServerPlayer player,CompoundTag command){try(var chunks=RoadWorkChunks.open(level)){
     var data=RoadData.get(level);UUID edited=command.hasUUID("Id")?command.getUUID("Id"):null;

@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.PushReaction;
 import net.minecraft.world.phys.shapes.*;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 public final class RoadBlocks {
   public static boolean isCollider(BlockState state){return state.getBlock() instanceof Road;}
@@ -114,13 +115,13 @@ public final class RoadBlocks {
         net.minecraft.world.level.block.state.properties.BlockStateProperties.WATERLOGGED;
     public static final net.minecraft.world.level.block.state.properties.BooleanProperty PERMEABLE =
         net.minecraft.world.level.block.state.properties.BooleanProperty.create("water_permeable");
-    @Override public boolean canPlaceLiquid(BlockGetter w,BlockPos p,BlockState s,net.minecraft.world.level.material.Fluid f){
+    @Override public boolean canPlaceLiquid(net.minecraft.world.entity.player.Player player,BlockGetter w,BlockPos p,BlockState s,net.minecraft.world.level.material.Fluid f){
       // PERMEABLE is set only for exterior/open structure cells. SEALED controls
       // shell light blocking; using it as a blanket water ban drained the exterior.
       return s.getValue(PERMEABLE)&&!s.getValue(WATERLOGGED)&&f==net.minecraft.world.level.material.Fluids.WATER;
     }
     @Override public boolean placeLiquid(net.minecraft.world.level.LevelAccessor w,BlockPos p,BlockState s,net.minecraft.world.level.material.FluidState f){
-      if(!canPlaceLiquid(w,p,s,f.getType()))return false;
+      if(!canPlaceLiquid(null,w,p,s,f.getType()))return false;
       if(!w.isClientSide()){w.setBlock(p,s.setValue(WATERLOGGED,true),3);w.scheduleTick(p,net.minecraft.world.level.material.Fluids.WATER,net.minecraft.world.level.material.Fluids.WATER.getTickDelay(w));}
       return true;
     }
@@ -148,6 +149,9 @@ public final class RoadBlocks {
               .lightLevel(state -> state.getValue(LIT) ? 15 : 0)
               .isViewBlocking((s, w, p) -> false)
               .isSuffocating((s, w, p) -> false)
+              // 1.21.1 ParticleEngine.crack() calls getShape().bounds() with no emptiness check,
+              // while this block legitimately has an empty shape when no road covers the position.
+              .noTerrainParticles()
               .pushReaction(PushReaction.BLOCK));
       registerDefaultState(stateDefinition.any().setValue(FILL, Fill.NONE).setValue(LIT, false).setValue(SEALED,false).setValue(WATERLOGGED,false).setValue(PERMEABLE,false));
     }
@@ -221,7 +225,7 @@ public final class RoadBlocks {
     }
   }
 
-  public static class Node extends BaseEntityBlock {
+  public static class Node extends Block implements net.minecraft.world.level.block.EntityBlock {
     private static final VoxelShape MARKER = Block.box(3, 0, 3, 13, 2, 13);
 
     public Node() {
@@ -231,6 +235,8 @@ public final class RoadBlocks {
               .dynamicShape()
               .noOcclusion()
               .isSuffocating((s, w, p) -> false)
+              // The marker only has a shape while the player holds a tool; see Road's note.
+              .noTerrainParticles()
               .pushReaction(PushReaction.BLOCK));
     }
 

@@ -69,5 +69,5 @@ public final class LanePointTool extends Item {
     if(!referenced&&deleted.isEmpty()&&LaneMerge.sameDefinitions(LaneTopology.metadata(r),md)){data.updateLanePointMetadata(level,player,r,md);return;}
     var removed=new HashSet<>(deleted);removed.add(r.id());data.replaceAssembly(level,player,List.of(new RoadIndex.Built(r.withLanePoints(md))),removed,Set.of(r.a(),r.b()));
   }
-  @Override public void appendHoverText(ItemStack s,Level l,List<Component> lines,TooltipFlag f){lines.add(Component.literal("右键机动车道吸附到该车道中轴线；右键蓝色点编辑"));lines.add(Component.literal("Shift＋右键自动点创建手动点；重合时 Shift 选择自动点"));}
+  @Override public void appendHoverText(ItemStack s,net.minecraft.world.item.Item.TooltipContext context,List<Component> lines,TooltipFlag f){var l=context.level();lines.add(Component.literal("右键机动车道吸附到该车道中轴线；右键蓝色点编辑"));lines.add(Component.literal("Shift＋右键自动点创建手动点；重合时 Shift 选择自动点"));}
 }

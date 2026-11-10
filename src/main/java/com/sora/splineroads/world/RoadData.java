@@ -39,6 +39,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.core.HolderLookup;
 
 public final class RoadData extends SavedData {
   public final RoadIndex index = new RoadIndex();
@@ -102,10 +103,10 @@ public final class RoadData extends SavedData {
   };
 
   public static RoadData get(ServerLevel level) {
-    var data=level.getDataStorage().computeIfAbsent(RoadData::load, RoadData::new, "splineroads");data.owningLevel=level;return data;
+    var data=level.getDataStorage().computeIfAbsent(new SavedData.Factory<>(RoadData::new, RoadData::load), "splineroads");data.owningLevel=level;return data;
   }
 
-  public static RoadData load(CompoundTag root) {
+  public static RoadData load(CompoundTag root, HolderLookup.Provider registries) {
     if (root.getInt("Version") > 71)
       throw new IllegalStateException("Spline Roads save is newer than this mod");
     if (root.getInt("Version") < 71)
@@ -197,7 +198,7 @@ public final class RoadData extends SavedData {
   }
 
   @Override
-  public CompoundTag save(CompoundTag root) {
+  public CompoundTag save(CompoundTag root, HolderLookup.Provider registries) {
     root.put("Railbeds",railbeds.save());
     root.putInt("Version", 71);
     var supportRepairs=new ListTag();for(UUID id:supportRepair104){var t=new CompoundTag();t.putUUID("Road",id);supportRepairs.add(t);}root.put("SupportRepair104",supportRepairs);
@@ -474,7 +475,7 @@ public final class RoadData extends SavedData {
         BlockPos from=entry.getKey();Node target=entry.getValue();var marker=requireNode(level,from,player);
         if(target.position().sub(marker.node().position()).horizontalLength()<1e-7)continue;
         V p=target.position();BlockPos to=BlockPos.containing(p.x(),p.y(),p.z());
-        relocated.put(from,to);moves.add(new NodeMove(from,to,target,marker.saveWithoutMetadata()));
+        relocated.put(from,to);moves.add(new NodeMove(from,to,target,marker.saveWithoutMetadata(level.registryAccess())));
       }
       if(!moves.isEmpty()){
         for(int i=0;i<changes.size();i++){
@@ -1325,7 +1326,7 @@ public final class RoadData extends SavedData {
       // logical roads and the junction groups selected above, then publish later.
       interchangesBefore=fullMetadata?copyTags(interchanges):Map.of();
       signsBefore=fullMetadata?smartSigns.snapshot():null;
-      int captured=0;for(long key:edit.touched()){if((captured++&1023)==0)com.sora.splineroads.core.RoadPlanningBudget.check();var pos=BlockPos.of(key);world.put(key,level.getBlockState(pos));var be=level.getBlockEntity(pos);if(be!=null)entities.put(key,be.saveWithFullMetadata());if(terrainOriginal.containsKey(key))original.put(key,terrainOriginal.get(key));if(terrainFill.containsKey(key))fill.put(key,terrainFill.get(key));}
+      int captured=0;for(long key:edit.touched()){if((captured++&1023)==0)com.sora.splineroads.core.RoadPlanningBudget.check();var pos=BlockPos.of(key);world.put(key,level.getBlockState(pos));var be=level.getBlockEntity(pos);if(be!=null)entities.put(key,be.saveWithFullMetadata(level.registryAccess()));if(terrainOriginal.containsKey(key))original.put(key,terrainOriginal.get(key));if(terrainFill.containsKey(key))fill.put(key,terrainFill.get(key));}
       com.sora.splineroads.core.RoadPlanningBudget.check();
     }
     void restore(ServerLevel level,RuntimeException failure){
@@ -1378,7 +1379,7 @@ public final class RoadData extends SavedData {
       var pos=BlockPos.of(entry.getKey());var state=states.get(entry.getKey());requireBlockState(level,pos,state);
       // load() need not clear absent optional fields (e.g. NodeEntity.Owner or
       // ForgeData). A fresh instance restores absence as well as stored values.
-      var be=net.minecraft.world.level.block.entity.BlockEntity.loadStatic(pos,state,entry.getValue().copy());
+      var be=net.minecraft.world.level.block.entity.BlockEntity.loadStatic(pos,state,entry.getValue().copy(),level.registryAccess());
       if(be==null||!state.hasBlockEntity()||!be.getType().isValid(state))throw new IllegalStateException("无法恢复端点/填充实体："+pos.toShortString());
       level.removeBlockEntity(pos);level.setBlockEntity(be);
       if(level.getBlockEntity(pos)!=be||be.isRemoved()||!be.getBlockPos().equals(pos)||!be.getBlockState().equals(state))throw new IllegalStateException("无法挂接恢复的端点/填充实体："+pos.toShortString());
@@ -1399,7 +1400,7 @@ public final class RoadData extends SavedData {
       if(!stable.equals(state))throw new IllegalStateException("世界拒绝写入道路方块："+pos.toShortString()+" target="+state+" supported="+stable);
       var entity=level.getBlockEntity(pos);var tag=entities.get(entry.getKey());
       if(tag!=null&&(entity==null||entity.isRemoved()||!entity.getBlockPos().equals(pos)||!entity.getBlockState().equals(state)
-          ||!entity.getType().isValid(state)||!entity.saveWithFullMetadata().equals(tag)))throw new IllegalStateException("恢复后端点/填充实体不一致："+pos.toShortString());
+          ||!entity.getType().isValid(state)||!entity.saveWithFullMetadata(net.minecraft.core.RegistryAccess.EMPTY).equals(tag)))throw new IllegalStateException("恢复后端点/填充实体不一致："+pos.toShortString());
       if(!state.hasBlockEntity()&&entity!=null)throw new IllegalStateException("恢复后残留方块实体："+pos.toShortString());
     }
     catch(RuntimeException failure){failed.accept(failure);}
@@ -2051,7 +2052,7 @@ public final class RoadData extends SavedData {
       for (var move : moves) {
         if(move.to()==null)continue;
         if(!(level.getBlockEntity(move.to()) instanceof NodeEntity marker))throw new IllegalStateException("道路端点实体创建失败："+move.to().toShortString());
-        marker.load(move.snapshot().copy());
+        marker.loadAdditional(move.snapshot().copy(),net.minecraft.core.RegistryAccess.EMPTY);
         marker.heightExplicit = true;
         marker.apply(move.target());
         if(!exactSplit)editFault.accept("node");

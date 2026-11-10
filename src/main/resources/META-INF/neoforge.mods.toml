@@ -1,0 +1,28 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="Spline Roads Non-Commercial License (META-INF/LICENSE.txt); third-party notices in META-INF/licenses"
+
+[[mods]]
+modId="splineroads"
+version="1.21.1-2.0"
+displayName="Spline Roads (Unofficial 1.21.1 Port)"
+authors="ShiraAya (original Spline Roads), BlueStarrySky (1.21.1 NeoForge port)"
+credits="1.21.1 NeoForge port by BlueStarrySky, implemented with AI assistance and human review/testing. Original Spline Roads and its content are copyright ShiraAya and used under the Spline Roads Non-Commercial License."
+description='''Unofficial NeoForge 1.21.1 port of Spline Roads 2.0 by ShiraAya. Independent endpoint-based solid spline roads.
+Ported by BlueStarrySky with AI-assisted implementation; the port has been human-reviewed and tested, but is not exhaustively tested.
+This port is not affiliated with or endorsed by the original author, who keeps all copyright in the original mod.
+Licensed under the Spline Roads Non-Commercial License; see META-INF/LICENSE.txt.'''
+
+[[dependencies.splineroads]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.splineroads]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"

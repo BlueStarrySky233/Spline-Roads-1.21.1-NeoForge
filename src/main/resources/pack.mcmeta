@@ -1,1 +1,7 @@
-{"pack":{"pack_format":15,"description":"Spline Roads resources"}}
+{
+  "pack": {
+    "pack_format": 48,
+    "supported_formats": [0, 2147483647],
+    "description": "Spline Roads resources"
+  }
+}

@@ -6,15 +6,16 @@ import com.sora.splineroads.world.NodeEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.blockentity.*;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.EntityRenderersEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 
-@Mod.EventBusSubscriber(
+@EventBusSubscriber(
     modid = SplineRoads.ID,
     value = Dist.CLIENT,
-    bus = Mod.EventBusSubscriber.Bus.MOD)
+    bus = EventBusSubscriber.Bus.MOD)
 public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
   public NodeRenderer(BlockEntityRendererProvider.Context context) {}
 
@@ -26,7 +27,7 @@ public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
 
   @SubscribeEvent
   public static void colors(
-      net.minecraftforge.client.event.RegisterColorHandlersEvent.Block event) {
+      net.neoforged.neoforge.client.event.RegisterColorHandlersEvent.Block event) {
     event.register(
         (state, level, pos, tint) ->
             level != null
@@ -64,7 +65,7 @@ public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
             1,
             light,
             overlay,
-            net.minecraftforge.client.model.data.ModelData.EMPTY,
+            net.neoforged.neoforge.client.model.data.ModelData.EMPTY,
             RenderType.solid());
     pose.pushPose();
     pose.translate(.5 + n.offsetX, n.offsetY + .05, .5 + n.offsetZ);
@@ -83,14 +84,14 @@ public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
   private void line(
       PoseStack p, VertexConsumer c, float x, float y, float z, float xx, float yy, float zz) {
     float dx = xx - x, dy = yy - y, dz = zz - z, l = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-    c.vertex(p.last().pose(), x, y, z)
-        .color(70, 255, 223, 255)
-        .normal(p.last().normal(), dx / l, dy / l, dz / l)
-        .endVertex();
-    c.vertex(p.last().pose(), xx, yy, zz)
-        .color(70, 255, 223, 255)
-        .normal(p.last().normal(), dx / l, dy / l, dz / l)
-        .endVertex();
+    c.addVertex(p.last().pose(), x, y, z)
+        .setColor(70, 255, 223, 255)
+        .setNormal(p.last(), dx / l, dy / l, dz / l)
+        ;
+    c.addVertex(p.last().pose(), xx, yy, zz)
+        .setColor(70, 255, 223, 255)
+        .setNormal(p.last(), dx / l, dy / l, dz / l)
+        ;
   }
 
   @Override

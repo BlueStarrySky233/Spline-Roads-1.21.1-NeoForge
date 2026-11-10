@@ -31,7 +31,8 @@ public final class LaneLineScreen extends Screen {
   private void sendArrows(){if(pending)return;var t=new CompoundTag();t.putString("Action","laneLines");t.putUUID("Id",payload.getUUID("Id"));t.putInt("Signature",payload.getInt("Signature"));t.putDouble("Station",payload.getDouble("Station"));t.putBoolean("HideArrows",!settings.options().hideArrows());pending=true;apply.active=false;arrows.active=false;ClientRoads.sendAction(t);}
   public void failed(String s){pending=false;status=s;apply.active=true;arrows.active=true;}
   @Override public boolean isPauseScreen(){return false;}
-  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);g.drawString(font,String.format(java.util.Locale.ROOT,"标线区间 %.1f–%.1f 米 · 点击选线",payload.getDouble("RangeStart"),payload.getDouble("RangeEnd")),x+12,y+13,0xffffff,false);g.fill(x+20,y+57,x+w-20,y+h-143,0xff43474b);
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);g.fill(x,y,x+w,y+h,0xf015222e);g.drawString(font,String.format(java.util.Locale.ROOT,"标线区间 %.1f–%.1f 米 · 点击选线",payload.getDouble("RangeStart"),payload.getDouble("RangeEnd")),x+12,y+13,0xffffff,false);g.fill(x+20,y+57,x+w-20,y+h-143,0xff43474b);
     for(int i=0;i<lines.size();i++){var p=i==selected?pattern:RoadLaneLines.get(settings,lines.getCompound(i).getString("Key")).pattern();int xx=lx(i),color=i==selected?0xff56d8ff:p.yellow()?0xffffd549:0xffeeeeee;for(int yy=y+65;yy<y+h-151;yy+=12)g.fill(xx-1,yy,xx+2,Math.min(yy+(p.dashed()?7:12),y+h-151),color);g.drawCenteredString(font,Integer.toString(i+1),xx,y+47,i==selected?0x56d8ff:0xbbbbbb);}
     super.render(g,mx,my,dt);g.drawWordWrap(font,Component.literal(status.isEmpty()?"线宽 0.06–0.4 格。箭头开关仅作用于本路段。":status),x+12,y+h-26,w-24,status.isEmpty()?0xbbd3dc:0xffb58a);
   }

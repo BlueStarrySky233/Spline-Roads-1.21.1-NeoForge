@@ -6,6 +6,7 @@ import java.util.*;
 import net.minecraft.nbt.*;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.core.HolderLookup;
 
 /** Plans and undo obligations belong to their dimension, not to a transient screen. */
 public final class StreetTaskStore extends SavedData {
@@ -36,8 +37,8 @@ public final class StreetTaskStore extends SavedData {
     }
   }
   final Map<UUID,Task> tasks=new LinkedHashMap<>();
-  public static StreetTaskStore get(ServerLevel level){return level.getDataStorage().computeIfAbsent(StreetTaskStore::load,StreetTaskStore::new,"splineroads_street_tasks");}
-  public static StreetTaskStore load(CompoundTag t){if(t.getInt("Version")!=1)throw new IllegalStateException("路网任务存档版本不受支持");var store=new StreetTaskStore();for(Tag v:t.getList("Tasks",Tag.TAG_COMPOUND)){var task=Task.load((CompoundTag)v);store.tasks.put(task.id,task);}store.setDirty();return store;}
-  @Override public CompoundTag save(CompoundTag t){t.putInt("Version",1);var tasksTag=new ListTag();tasks.values().forEach(task->tasksTag.add(task.save()));t.put("Tasks",tasksTag);return t;}
+  public static StreetTaskStore get(ServerLevel level){return level.getDataStorage().computeIfAbsent(new SavedData.Factory<>(StreetTaskStore::new, StreetTaskStore::load),"splineroads_street_tasks");}
+  public static StreetTaskStore load(CompoundTag t, HolderLookup.Provider registries){if(t.getInt("Version")!=1)throw new IllegalStateException("路网任务存档版本不受支持");var store=new StreetTaskStore();for(Tag v:t.getList("Tasks",Tag.TAG_COMPOUND)){var task=Task.load((CompoundTag)v);store.tasks.put(task.id,task);}store.setDirty();return store;}
+  @Override public CompoundTag save(CompoundTag t, HolderLookup.Provider registries){t.putInt("Version",1);var tasksTag=new ListTag();tasks.values().forEach(task->tasksTag.add(task.save()));t.put("Tasks",tasksTag);return t;}
   void changed(Task t){t.updated=System.currentTimeMillis();setDirty();}
 }

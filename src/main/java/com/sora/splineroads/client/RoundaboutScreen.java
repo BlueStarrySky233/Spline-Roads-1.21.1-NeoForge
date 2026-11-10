@@ -31,5 +31,6 @@ public final class RoundaboutScreen extends Screen {
  @Override public void onClose(){clearPreview();super.onClose();}
  @Override public void removed(){clearPreview();super.removed();}
  @Override public boolean isPauseScreen(){return false;}
- @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);int x=width/2-140,y=height/2-80;g.fill(x-12,y-12,x+282,y+156,0xee1b2530);g.drawString(font,title,x,y,0xffffff);g.drawString(font,"中心线半径 / 格",x,y+36,0xd6e2ed);super.render(g,mx,my,dt);g.drawString(font,font.plainSubstrByWidth(status,280),x,y+143,0xb8d6cb);}
+ @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);int x=width/2-140,y=height/2-80;g.fill(x-12,y-12,x+282,y+156,0xee1b2530);g.drawString(font,title,x,y,0xffffff);g.drawString(font,"中心线半径 / 格",x,y+36,0xd6e2ed);super.render(g,mx,my,dt);g.drawString(font,font.plainSubstrByWidth(status,280),x,y+143,0xb8d6cb);}
 }

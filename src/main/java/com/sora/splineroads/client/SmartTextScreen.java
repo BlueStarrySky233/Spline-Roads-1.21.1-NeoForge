@@ -63,5 +63,6 @@ public final class SmartTextScreen extends Screen {
   public static void result(SmartTextScreen owner,boolean success,String message){if(draft!=owner||!owner.pending)return;draft.pending=false;if(success){clear();Minecraft.getInstance().setScreen(null);}else {draft.status=message;Minecraft.getInstance().setScreen(draft);}}
   @Override public void onClose(){clear();Minecraft.getInstance().setScreen(null);}
   @Override public boolean isPauseScreen(){return false;}
-  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);g.fill(left,top,left+360,top+297,0xf012212c);g.drawString(font,title,left+10,top+10,0xffffff);g.drawString(font,indicator()?"车道指示牌 "+(selected+1)+" / "+fields.size():"区域 "+(selected+1)+" / "+fields.size()+" · "+SmartSigns.label(field()),left+10,top+61,0xd2e4d8);super.render(g,mx,my,dt);g.drawWordWrap(font,Component.literal(status),left+10,top+221,340,0xffd9a5);}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);g.fill(left,top,left+360,top+297,0xf012212c);g.drawString(font,title,left+10,top+10,0xffffff);g.drawString(font,indicator()?"车道指示牌 "+(selected+1)+" / "+fields.size():"区域 "+(selected+1)+" / "+fields.size()+" · "+SmartSigns.label(field()),left+10,top+61,0xd2e4d8);super.render(g,mx,my,dt);g.drawWordWrap(font,Component.literal(status),left+10,top+221,340,0xffd9a5);}
 }

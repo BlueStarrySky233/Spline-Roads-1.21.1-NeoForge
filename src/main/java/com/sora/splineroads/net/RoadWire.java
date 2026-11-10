@@ -154,7 +154,7 @@ public final class RoadWire {
         }
         return NbtIo.read(
             new DataInputStream(new ByteArrayInputStream(raw.toByteArray())),
-            new NbtAccounter(32L * 1024 * 1024));
+            NbtAccounter.create(32L * 1024 * 1024));
       } catch (java.util.concurrent.CancellationException e) {
         throw e;
       } catch (IOException | RuntimeException e) {

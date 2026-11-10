@@ -17,7 +17,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.level.chunk.ChunkStatus;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.levelgen.Heightmap;
 import org.lwjgl.glfw.GLFW;
 
@@ -166,7 +166,7 @@ public final class ManualPlannerScreen extends Screen {
   }
   @Override public boolean mouseDragged(double x,double y,int button,double dx,double dy){if(moving&&axis!=0){movingAt=new V(axis==1?wx(x):movingAt.x(),movingAt.y(),axis==2?wz(y):movingAt.z());return true;}if(pressed&&button==0&&(dragged||net.minecraft.Util.getMillis()-pressAt>160&&Math.hypot(x-pressX,y-pressY)>3)){dragged=true;cx=pressCenterX-(x-pressX)/zoom;cz=pressCenterZ-(y-pressY)/zoom;return true;}return super.mouseDragged(x,y,button,dx,dy);}
   @Override public boolean mouseReleased(double x,double y,int button){if(moving&&axis!=0){axis=0;return true;}if(pressed&&button==0){pressed=false;if(dragged&&tool==1){selected=null;selectedRoad=null;openSelected=false;}if(!dragged&&map(x,y)){if(tool!=1||openSelected)send("manualClick",selected,selectedRoad,x,y);else status="已选中，再次单击打开设置；右键打开菜单";}return true;}return super.mouseReleased(x,y,button);}
-  @Override public boolean mouseScrolled(double x,double y,double delta){if(hasControlDown()&&tool==5){cycleArms(delta);return true;}if(!map(x,y))return false;double beforeX=wx(x),beforeZ=wz(y);zoom=Math.max(minimumZoom(),Math.min(24,zoom*Math.pow(1.2,delta)));cx+=beforeX-wx(x);cz+=beforeZ-wz(y);return true;}
+  @Override public boolean mouseScrolled(double x,double y,double dx,double dy){double delta=dy;if(hasControlDown()&&tool==5){cycleArms(delta);return true;}if(!map(x,y))return false;double beforeX=wx(x),beforeZ=wz(y);zoom=Math.max(minimumZoom(),Math.min(24,zoom*Math.pow(1.2,delta)));cx+=beforeX-wx(x);cz+=beforeZ-wz(y);return true;}
   private double minimumZoom(){return Math.max(.025,Math.min(right()-left(),bottom()-top())/(4096.0*1.1));}
   void cycleArms(double delta){if(delta==0)return;arms=3+Math.floorMod(arms-3+(delta>0?1:-1),4);choose(tool);}
   @Override public boolean keyPressed(int key,int scan,int modifiers){if(key>=GLFW.GLFW_KEY_1&&key<=GLFW.GLFW_KEY_7){choose(key-GLFW.GLFW_KEY_1+1);return true;}if(hasControlDown()&&(key==GLFW.GLFW_KEY_Z||key==GLFW.GLFW_KEY_Y)){ClientRoads.sendAction(command(key==GLFW.GLFW_KEY_Z?"manualUndo":"manualRedo"));return true;}if(key==GLFW.GLFW_KEY_H){hidden.clear();status="已恢复全部道路和铁路路基";return true;}if(key==GLFW.GLFW_KEY_DELETE){remove();return true;}if(ManualPlannerClient.KEY.matches(key,scan)){onClose();return true;}if(Set.of(GLFW.GLFW_KEY_W,GLFW.GLFW_KEY_A,GLFW.GLFW_KEY_S,GLFW.GLFW_KEY_D,GLFW.GLFW_KEY_LEFT_SHIFT).contains(key)){keys.add(key);return true;}return super.keyPressed(key,scan,modifiers);}
@@ -176,6 +176,7 @@ public final class ManualPlannerScreen extends Screen {
   @Override public void onClose(){ManualPlannerClient.close();}
   @Override public void removed(){keys.clear();pressed=false;}
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
     g.fill(0,0,width,height,0xff141d27);g.drawString(font,"SR · 手动道路规划",10,13,0xfff2f4fa,false);g.drawString(font,"撤销 "+state.getInt("Undo")+"  /  重做 "+state.getInt("Redo"),left()+8,14,0xff9bacbf,false);
     g.fill(left(),top(),right(),bottom(),0xff252b30);g.enableScissor(left(),top(),right(),bottom());
@@ -211,8 +212,8 @@ public final class ManualPlannerScreen extends Screen {
   private record Strip(RoadIndex.Built road,Sample a,Sample b){double height(){return (a.center().y()+b.center().y())/2;}}
   private void drawRoads(GuiGraphics g){
     collect();var strips=preparedStrips;
-    g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);var buffer=Tesselator.getInstance().getBuilder();buffer.begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
-    for(var strip:strips){var b=strip.road();var a=strip.a();var c=strip.b();int color=b.record.id().equals(selectedRoad)?0xffffd76b:roadColor(b,a);V[] quad={a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),c.at(-c.halfWidth(),0),c.at(c.halfWidth(),0)};for(V p:quad)buffer.vertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).color((color>>16)&255,(color>>8)&255,color&255,255).endVertex();}BufferUploader.drawWithShader(buffer.end());RenderSystem.disableBlend();RenderSystem.enableCull();
+    g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
+    for(var strip:strips){var b=strip.road();var a=strip.a();var c=strip.b();int color=b.record.id().equals(selectedRoad)?0xffffd76b:roadColor(b,a);V[] quad={a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),c.at(-c.halfWidth(),0),c.at(c.halfWidth(),0)};for(V p:quad)buffer.addVertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).setColor((color>>16)&255,(color>>8)&255,color&255,255);}BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();
   }
   private List<Mesh> previewMeshes(){
     if(!ManualPlannerClient.hasMapPreview()||ClientRoads.conflictPreview)return List.of();
@@ -221,9 +222,9 @@ public final class ManualPlannerScreen extends Screen {
   private void drawPreview(GuiGraphics g){
     var meshes=previewMeshes();if(meshes.isEmpty())return;
     g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);
-    var buffer=Tesselator.getInstance().getBuilder();buffer.begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
-    for(var mesh:meshes){if(!visible(mesh))continue;var samples=mesh.samples();for(int i=1;i<samples.size();i++){var a=samples.get(i-1);var b=samples.get(i);for(V p:List.of(a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),b.at(-b.halfWidth(),0),b.at(b.halfWidth(),0)))buffer.vertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).color(67,221,136,235).endVertex();}}
-    BufferUploader.drawWithShader(buffer.end());RenderSystem.disableBlend();RenderSystem.enableCull();g.drawString(font,"绿色：待建预览",left()+8,top()+8,0xff74ffae,false);
+    var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
+    for(var mesh:meshes){if(!visible(mesh))continue;var samples=mesh.samples();for(int i=1;i<samples.size();i++){var a=samples.get(i-1);var b=samples.get(i);for(V p:List.of(a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),b.at(-b.halfWidth(),0),b.at(b.halfWidth(),0)))buffer.addVertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).setColor(67,221,136,235);}}
+    BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();g.drawString(font,"绿色：待建预览",left()+8,top()+8,0xff74ffae,false);
   }
   final class PlannerSettings extends Screen {
     private int radius=state.contains("Radius")?state.getInt("Radius"):256,steps=state.contains("MaxUndo")?state.getInt("MaxUndo"):30;
@@ -231,7 +232,8 @@ public final class ManualPlannerScreen extends Screen {
     @Override protected void init(){int x=width/2-140,y=height/2-55;addRenderableWidget(new SettingSlider(x,y,true,radius,16,2048));addRenderableWidget(new SettingSlider(x,y+32,false,steps,1,30));addRenderableWidget(Button.builder(Component.literal("保存"),b->{var t=command("manualSettings");t.putInt("Radius",radius);t.putInt("MaxUndo",steps);ClientRoads.sendAction(t);onClose();}).bounds(x,y+82,133,20).build());addRenderableWidget(Button.builder(Component.literal("返回"),b->onClose()).bounds(x+147,y+82,133,20).build());ManualPlannerClient.child(this);ClientRoads.beginEditor(this);}
     @Override public void onClose(){minecraft.setScreen(ManualPlannerScreen.this);ClientRoads.beginEditor(ManualPlannerScreen.this);}
     @Override public boolean isPauseScreen(){return false;}
-    @Override public void render(GuiGraphics g,int x,int y,float dt){renderBackground(g);g.drawCenteredString(font,title,width/2,height/2-85,0xffffffff);g.drawCenteredString(font,"地表分批加载并保留到关闭；操作范围为半径2048格",width/2,height/2+13,0xffbfd0e0);super.render(g,x,y,dt);}
+    @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int x,int y,float dt){renderTransparentBackground(g);g.drawCenteredString(font,title,width/2,height/2-85,0xffffffff);g.drawCenteredString(font,"地表分批加载并保留到关闭；操作范围为半径2048格",width/2,height/2+13,0xffbfd0e0);super.render(g,x,y,dt);}
     final class SettingSlider extends AbstractSliderButton {private final boolean terrainSetting;private final int min,max;SettingSlider(int x,int y,boolean terrainSetting,int current,int min,int max){super(x,y,280,22,Component.empty(),(current-min)/(double)(max-min));this.terrainSetting=terrainSetting;this.min=min;this.max=max;updateMessage();}protected void updateMessage(){setMessage(Component.literal(terrainSetting?"地表加载半径："+radius+" 格":"撤销最大步："+steps));}protected void applyValue(){int n=min+(int)Math.round(value*(max-min));if(terrainSetting)radius=n;else steps=n;updateMessage();}}
   }
   final class PointDetails extends Screen {
@@ -241,6 +243,7 @@ public final class ManualPlannerScreen extends Screen {
     @Override protected void init(){int x=width/2-140,y=height/2-70;double[] values={point.at().x(),point.at().y(),point.at().z()};for(int i=0;i<3;i++){xyz[i]=new EditBox(font,x+30,y+i*27,235,20,Component.literal("XYZ".substring(i,i+1)));xyz[i].setMaxLength(24);xyz[i].setValue(String.format(Locale.ROOT,"%.3f",values[i]));addRenderableWidget(xyz[i]);}addRenderableWidget(Button.builder(Component.literal("保存坐标"),b->{try{var at=new V(Double.parseDouble(xyz[0].getValue()),Double.parseDouble(xyz[1].getValue()),Double.parseDouble(xyz[2].getValue()));selected=point;var t=command("manualMove");target(t,point,null,at);ClientRoads.sendAction(t);}catch(IllegalArgumentException e){message="请输入有效坐标";}}).bounds(x,y+89,87,20).build());addRenderableWidget(Button.builder(Component.literal("原有设置"),b->{minecraft.setScreen(ManualPlannerScreen.this);send("manualDetails",point,null,sx(point.at().x()),sy(point.at().z()));}).bounds(x+94,y+89,87,20).build());addRenderableWidget(Button.builder(Component.literal("返回地图"),b->onClose()).bounds(x+188,y+89,87,20).build());ManualPlannerClient.child(this);ClientRoads.beginEditor(this);}
     @Override public void onClose(){minecraft.setScreen(ManualPlannerScreen.this);ClientRoads.beginEditor(ManualPlannerScreen.this);}
     @Override public boolean isPauseScreen(){return false;}
-    @Override public void render(GuiGraphics g,int x,int y,float dt){renderBackground(g);int left=width/2-140,top=height/2-70;g.drawString(font,title,left,top-22,0xffffffff,false);for(int i=0;i<3;i++)g.drawString(font,"XYZ".substring(i,i+1),left,top+i*27+6,0xffffffff,false);g.drawString(font,font.plainSubstrByWidth(message,290),left,top+117,0xffb8ccd9,false);super.render(g,x,y,dt);}
+    @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int x,int y,float dt){renderTransparentBackground(g);int left=width/2-140,top=height/2-70;g.drawString(font,title,left,top-22,0xffffffff,false);for(int i=0;i<3;i++)g.drawString(font,"XYZ".substring(i,i+1),left,top+i*27+6,0xffffffff,false);g.drawString(font,font.plainSubstrByWidth(message,290),left,top+117,0xffb8ccd9,false);super.render(g,x,y,dt);}
   }
 }

@@ -20,7 +20,7 @@ public final class JunctionTool extends Item {
     try {
       BlockPos p=RoadTool.endpointAtHit(context);
       if(player.serverLevel().getBlockEntity(p) instanceof NodeEntity) {
-        RoadData.requireNode(player.serverLevel(),p,player);var tag=context.getItemInHand().getOrCreateTag();
+        RoadData.requireNode(player.serverLevel(),p,player);var tag=ItemTag.of(context.getItemInHand());
         if(tag.getLongArray("Points").length==0){
           var data=RoadData.get(player.serverLevel());
           for(var entry:data.junctions.entrySet()){var saved=entry.getValue();var points=saved.getLongArray("Points");
@@ -42,16 +42,16 @@ public final class JunctionTool extends Item {
     var hit=RoadTool.pick(p);
     if(hit!=null&&hit.record.junction()!=null){RoadNetwork.open(p,Junctions.selectedPayload(p.serverLevel(),p,hit.record));return;}
     if(hit!=null&&hit.record.assembly()!=null){var saved=RoadData.get(p.serverLevel()).interchanges.get(hit.record.assembly());if(saved!=null&&saved.getBoolean("YJunction")){RoadNetwork.open(p,YJunctionTool.payload(p.serverLevel(),p,saved.getLongArray("Points"),hit.record.assembly()));return;}}
-    var t=stack.getOrCreateTag();if(!p.level().dimension().location().toString().equals(t.getString("Dimension")))throw new IllegalArgumentException("先选中心，再选 3–6 个接入口");
+    var t=ItemTag.of(stack);if(!p.level().dimension().location().toString().equals(t.getString("Dimension")))throw new IllegalArgumentException("先选中心，再选 3–6 个接入口");
     RoadNetwork.open(p,Junctions.payload(p.serverLevel(),p,t.getLongArray("Points"),null));
   }
   @Override public InteractionResultHolder<ItemStack> use(Level level,Player who,InteractionHand hand) {
     ItemStack stack=who.getItemInHand(hand);
     if(!level.isClientSide&&who instanceof ServerPlayer p)try {
-      if(who.isShiftKeyDown()){stack.getOrCreateTag().remove("Points");var t=new CompoundTag();t.putString("Kind","junctionReset");RoadNetwork.open(p,t);}
+      if(who.isShiftKeyDown()){ItemTag.of(stack).remove("Points");var t=new CompoundTag();t.putString("Kind","junctionReset");RoadNetwork.open(p,t);}
       else open(p,stack);
     }catch(IllegalArgumentException e){who.displayClientMessage(Component.literal(e.getMessage()),false);}
     return InteractionResultHolder.sidedSuccess(stack,level.isClientSide);
   }
-  @Override public void appendHoverText(ItemStack s,Level l,List<Component> lines,TooltipFlag f){lines.add(Component.literal("中心端点 → 3–6 个接入口 → 右键空气设置"));lines.add(Component.literal("右键编辑普通路口、环岛或 Y 字路口；Shift＋右键空气清除选点"));}
+  @Override public void appendHoverText(ItemStack s,net.minecraft.world.item.Item.TooltipContext context,List<Component> lines,TooltipFlag f){var l=context.level();lines.add(Component.literal("中心端点 → 3–6 个接入口 → 右键空气设置"));lines.add(Component.literal("右键编辑普通路口、环岛或 Y 字路口；Shift＋右键空气清除选点"));}
 }

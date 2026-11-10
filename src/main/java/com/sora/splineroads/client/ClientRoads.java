@@ -9,16 +9,19 @@ import java.util.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RenderFrameEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 
-@Mod.EventBusSubscriber(modid = SplineRoads.ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = SplineRoads.ID, value = Dist.CLIENT)
 public final class ClientRoads {
-  @SubscribeEvent public static void curveControl(net.minecraftforge.client.event.InputEvent.InteractionKeyMappingTriggered e){
+  @SubscribeEvent public static void curveControl(net.neoforged.neoforge.client.event.InputEvent.InteractionKeyMappingTriggered e){
     var mc=Minecraft.getInstance();
     if(!e.isUseItem()||e.getHand()!=net.minecraft.world.InteractionHand.MAIN_HAND||mc.screen!=null||mc.player==null||mc.level==null||!(mc.player.getMainHandItem().getItem() instanceof RoadTool)||!com.mojang.blaze3d.platform.InputConstants.isKeyDown(mc.getWindow().getWindow(),org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_ALT))return;
     e.setCanceled(true);e.setSwingHand(false);
@@ -48,7 +51,7 @@ public final class ClientRoads {
       var request=editRequests.submit(owner,action,com.sora.splineroads.net.RoadActionContext.target(command));
       com.sora.splineroads.net.RoadActionContext.attach(command,request);
     }
-    RoadNetwork.CHANNEL.sendToServer(new RoadNetwork.Action(command));
+    net.neoforged.neoforge.network.PacketDistributor.sendToServer(new RoadNetwork.Action(command));
   }
 
   static void beginWorldEdit(){editRequests.reset();editRequests.open(WORLD_EDITOR);}
@@ -109,7 +112,7 @@ public final class ClientRoads {
   private static void resetCold(){cold.clear();coldWeights=Map.of();coldGpuTrimmed.clear();coldCursor=0;coldBytes=coldDerivedBytes=0;residencyChunks.clear();residencyRoads.clear();coldSync.clear();coldChanged();}
   static void chunkChanged(long chunk){residencyChunks.add(chunk);RoadRenderer.chunkChanged(chunk);}
   private static boolean chunkLoaded(net.minecraft.client.multiplayer.ClientLevel level,long chunk){
-    return level.getChunkSource().getChunk((int)chunk,(int)(chunk>>32),net.minecraft.world.level.chunk.ChunkStatus.FULL,false)!=null;
+    return level.getChunkSource().getChunk((int)chunk,(int)(chunk>>32),net.minecraft.world.level.chunk.status.ChunkStatus.FULL,false)!=null;
   }
   private static void refreshResidency(net.minecraft.client.multiplayer.ClientLevel level,UUID id){
     var road=INDEX.roads.get(id);if(road==null)return;
@@ -159,10 +162,10 @@ public final class ClientRoads {
     trimNanos+=System.nanoTime()-started;
   }
 
-  @Mod.EventBusSubscriber(
+  @EventBusSubscriber(
       modid = SplineRoads.ID,
       value = Dist.CLIENT,
-      bus = Mod.EventBusSubscriber.Bus.MOD)
+      bus = EventBusSubscriber.Bus.MOD)
   public static final class Setup {
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent e) {
@@ -294,7 +297,7 @@ public final class ClientRoads {
           INDEX.lanePoints(old.record.id(),LanePointCodec.read(t.getCompound("Points")));
         else {
           var request=new CompoundTag();request.putString("Action","lanePointResync");request.putUUID("Id",t.getUUID("Id"));
-          com.sora.splineroads.net.RoadNetwork.CHANNEL.sendToServer(new com.sora.splineroads.net.RoadNetwork.Action(request));
+          net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.sora.splineroads.net.RoadNetwork.Action(request));
         }
       } else if (type.equals("delete")) {
         remove(t.getUUID("Id"));
@@ -324,7 +327,7 @@ public final class ClientRoads {
     for(var r:batch){awaken(r.record.id());SmartSignClient.roadChanged(r.record.id());INDEX.put(r);residencyRoads.add(r.record.id());}
     for(var r:batch)INDEX.surfaceNeighbors(r).forEach(b->changed.add(b.record.id()));
     for(var entry:packet.getList("SignPackets",net.minecraft.nbt.Tag.TAG_COMPOUND))SmartSignClient.receive((CompoundTag)entry);
-    var level=Minecraft.getInstance().level;if(level!=null&&packet.contains("Node")){var pos=net.minecraft.core.BlockPos.of(packet.getLong("NodePos"));if(level.getBlockEntity(pos) instanceof NodeEntity marker)marker.load(packet.getCompound("Node"));}
+    var level=Minecraft.getInstance().level;if(level!=null&&packet.contains("Node")){var pos=net.minecraft.core.BlockPos.of(packet.getLong("NodePos"));if(level.getBlockEntity(pos) instanceof NodeEntity marker)marker.loadAdditional(packet.getCompound("Node"),level.registryAccess());}
     RoadRenderer.changedBatch(changed,ids);receivedBatches.add(token);while(receivedBatches.size()>256)receivedBatches.remove(receivedBatches.iterator().next());RoadNetwork.ackBatch(token);
   }
   private static void remove(UUID id) {remove(id,false);}
@@ -414,7 +417,7 @@ public final class ClientRoads {
     if(kind.equals("laneRampReset")){if(LaneRampScreen.clear())error="";if(mc.screen instanceof LaneRampScreen)mc.setScreen(null);return;}
     if(kind.equals("lanePoint")){
       mc.setScreen(new LanePointScreen(t));
-      if(t.hasUUID("Interaction")){var ack=new CompoundTag();ack.putString("Action","lanePointReady");ack.putUUID("Interaction",t.getUUID("Interaction"));com.sora.splineroads.net.RoadNetwork.CHANNEL.sendToServer(new com.sora.splineroads.net.RoadNetwork.Action(ack));}
+      if(t.hasUUID("Interaction")){var ack=new CompoundTag();ack.putString("Action","lanePointReady");ack.putUUID("Interaction",t.getUUID("Interaction"));net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.sora.splineroads.net.RoadNetwork.Action(ack));}
       return;
     }
     if(kind.equals("laneRamp")){LaneRampScreen.open(t);return;}
@@ -484,8 +487,8 @@ public final class ClientRoads {
   }
 
   @SubscribeEvent
-  public static void tick(TickEvent.ClientTickEvent e) {
-    if (e.phase != TickEvent.Phase.END) return;
+  public static void tick(ClientTickEvent.Post e) {
+    
     ensureWorld();
     inbox.drain(event -> {
       if (event.error() != null) error = event.error();

@@ -18,7 +18,7 @@ public final class YJunctionTool extends Item {
   @Override public InteractionResult useOn(UseOnContext c){
     if(c.getLevel().isClientSide)return InteractionResult.SUCCESS;
     if(c.getPlayer() instanceof ServerPlayer p)try(var work=RoadWorkChunks.open(p.serverLevel())){
-      var d=RoadData.get(p.serverLevel());BlockPos pos=RoadTool.endpointAtHit(c);var tag=c.getItemInHand().getOrCreateTag();
+      var d=RoadData.get(p.serverLevel());BlockPos pos=RoadTool.endpointAtHit(c);var tag=ItemTag.of(c.getItemInHand());
       if(p.isShiftKeyDown()){tag.remove("Points");p.displayClientMessage(Component.literal("Y 字选点已清空"),true);return InteractionResult.CONSUME;}
       if(p.serverLevel().getBlockEntity(pos) instanceof NodeEntity){
         RoadData.requireNode(p.serverLevel(),pos,p);String dim=p.level().dimension().location().toString();long[] old=dim.equals(tag.getString("Dimension"))?tag.getLongArray("Points"):new long[0];if(old.length>=3)old=new long[0];for(long k:old)if(k==pos.asLong())throw new IllegalArgumentException("请选择不同的端点");
@@ -27,7 +27,7 @@ public final class YJunctionTool extends Item {
       }else{var r=RoadTool.pick(p);var saved=r==null?null:d.interchanges.get(r.record.assembly());if(saved==null||!saved.getBoolean("YJunction"))throw new IllegalArgumentException("依次选 A/B/C 端点，或右键已有 Y 字路口");RoadNetwork.open(p,payload(p.serverLevel(),p,saved.getLongArray("Points"),saved.getUUID("Id")));}
     }catch(IllegalArgumentException e){p.displayClientMessage(Component.literal(e.getMessage()),false);}return InteractionResult.CONSUME;
   }
-  @Override public InteractionResultHolder<ItemStack> use(Level l,Player p,InteractionHand hand){if(p.isShiftKeyDown()){p.getItemInHand(hand).getOrCreateTag().remove("Points");if(!l.isClientSide)p.displayClientMessage(Component.literal("Y 字选点已清空"),true);}return InteractionResultHolder.sidedSuccess(p.getItemInHand(hand),l.isClientSide);}
+  @Override public InteractionResultHolder<ItemStack> use(Level l,Player p,InteractionHand hand){if(p.isShiftKeyDown()){ItemTag.of(p.getItemInHand(hand)).remove("Points");if(!l.isClientSide)p.displayClientMessage(Component.literal("Y 字选点已清空"),true);}return InteractionResultHolder.sidedSuccess(p.getItemInHand(hand),l.isClientSide);}
   static CompoundTag payload(ServerLevel l,ServerPlayer p,long[] points,UUID id){
     if(points.length!=3||Arrays.stream(points).distinct().count()!=3)throw new IllegalArgumentException("需要 A/B/C 三个不同端点");
     var d=RoadData.get(l);var t=id==null?new CompoundTag():Interchanges.descriptor(d,id);if(id!=null&&p!=null)RoadData.requireOwner(p,t.getUUID("Owner"));
@@ -61,7 +61,7 @@ public final class YJunctionTool extends Item {
   public static String build(ServerLevel l,ServerPlayer p,CompoundTag command,ItemStack tool){
     if(!(tool.getItem() instanceof YJunctionTool)&&!(command.hasUUID("Id")&&tool.getItem() instanceof JunctionTool))throw new IllegalArgumentException("请手持 Y 字路口编辑器");
     var d=RoadData.get(l);UUID id=command.hasUUID("Id")?command.getUUID("Id"):null;long[] points=command.getLongArray("Points");
-    if(id==null&&(!Arrays.equals(points,tool.getOrCreateTag().getLongArray("Points"))||!l.dimension().location().toString().equals(tool.getTag().getString("Dimension"))))throw new IllegalArgumentException("选点已失效，请重新选择 A/B/C");
+    if(id==null&&(!Arrays.equals(points,ItemTag.of(tool).getLongArray("Points"))||!l.dimension().location().toString().equals(ItemTag.of(tool).getString("Dimension"))))throw new IllegalArgumentException("选点已失效，请重新选择 A/B/C");
     if(id!=null){var saved=Interchanges.descriptor(d,id);if(!saved.getBoolean("YJunction")||!Arrays.equals(points,saved.getLongArray("Points")))throw new IllegalArgumentException("Y 字路口已改变");}
     if(command.getBoolean("Delete")){if(id==null)throw new IllegalArgumentException("尚未建造");Interchanges.remove(l,p,id);return "Y 字路口已删除";}
     try(var work=RoadWorkChunks.open(l)){
@@ -85,7 +85,7 @@ public final class YJunctionTool extends Item {
         var deck=mask==old.record.endCaps()?old.mesh:old.record.caps(mask).mesh();
         for(var proposed:built)if(RoadIndex.overlapXZ(proposed.mesh,deck,1))Interchanges.checkExternal(proposed.mesh,deck);
       }
-      d.replaceAssembly(l,p,built,removed,Set.of(a,b,c));d.interchanges.put(group,t);d.setDirty();tool.getOrCreateTag().remove("Points");return "Y 字路口已更新：A→B、C→A";
+      d.replaceAssembly(l,p,built,removed,Set.of(a,b,c));d.interchanges.put(group,t);d.setDirty();ItemTag.of(tool).remove("Points");return "Y 字路口已更新：A→B、C→A";
     }
   }
 }

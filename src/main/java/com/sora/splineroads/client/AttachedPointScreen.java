@@ -25,8 +25,9 @@ public final class AttachedPointScreen extends Screen {
   public void failed(String text){status=text;delete.active=true;}
   @Override public void tick(){if(payload.getBoolean("PlannerDelete")&&delete!=null){payload.remove("PlannerDelete");delete.onPress();}}
   @Override public boolean isPauseScreen(){return false;}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(x,y,x+w,y+122,0xf015222e);g.drawString(font,title,x+12,y+12,0xffffff,false);
+    renderTransparentBackground(g);g.fill(x,y,x+w,y+122,0xf015222e);g.drawString(font,title,x+12,y+12,0xffffff,false);
     g.drawWordWrap(font,Component.literal(payload.getBoolean("Elevated")?"用道路连接器选择此点和高处的尽头端点，设置高架上下坡连接。":"固定在所选道路断面中央，用于标线分段和道路选择。"),x+12,y+34,w-24,0xbbd3dc);
     super.render(g,mx,my,dt);g.drawWordWrap(font,Component.literal(status),x+12,y+98,w-24,0xffbb88);
   }

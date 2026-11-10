@@ -46,5 +46,6 @@ public final class ElevatedAccessScreen extends Screen {
   private void send(String action){if(pending)return;var t=payload.copy();t.putString("Action",action);pending=true;build.active=false;status="正在检查高架与地面车道、净空和占地…";ClientRoads.sendAction(t);}
   public void failed(String message){pending=false;status=message;if(build!=null)build.active=payload.hasUUID("Token")||payload.hasUUID("Id");}
   @Override public boolean isPauseScreen(){return false;}
-  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);g.fill(x,y,x+340,y+210,0xf015222e);g.drawString(font,title,x+12,y+14,0xffffff,false);g.drawWordWrap(font,Component.literal(status),x+12,y+96,316,0xc5dde7);if(payload.getBoolean("Locked"))g.drawString(font,"继承已有高架尽头的方向、车道数和宽度",x+12,y+191,0x93c8d4,false);super.render(g,mx,my,dt);}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);g.fill(x,y,x+340,y+210,0xf015222e);g.drawString(font,title,x+12,y+14,0xffffff,false);g.drawWordWrap(font,Component.literal(status),x+12,y+96,316,0xc5dde7);if(payload.getBoolean("Locked"))g.drawString(font,"继承已有高架尽头的方向、车道数和宽度",x+12,y+191,0x93c8d4,false);super.render(g,mx,my,dt);}
 }

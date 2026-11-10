@@ -8,14 +8,15 @@ import java.util.List;
 import java.util.Locale;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RegisterClientCommandsEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 import static net.minecraft.commands.Commands.*;
 
 /** Local display preferences are available without operator rights on any server. */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
+@EventBusSubscriber(modid=SplineRoads.ID,value=Dist.CLIENT)
 public final class RoadClientCommands {
   @SubscribeEvent public static void register(RegisterClientCommandsEvent event){
     var perf=literal("perf").executes(c->perf(c.getSource(),!RoadClientConfig.PERF_OVERLAY.get()));

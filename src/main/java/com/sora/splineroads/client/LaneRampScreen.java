@@ -139,7 +139,8 @@ public final class LaneRampScreen extends Screen {
     private final LaneRampScreen parent;private final String message;
     FailureDetails(LaneRampScreen parent,String message){super(Component.literal("匝道建造失败详情"));this.parent=parent;this.message=message;}
     @Override protected void init(){addRenderableWidget(Button.builder(Component.literal("返回匝道设置"),b->onClose()).bounds((width-160)/2,height-30,160,20).build());}
-    @Override public void render(GuiGraphics g,int mx,int my,float dt){
+    @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){
       g.fill(12,12,width-12,height-12,0xf015222e);
       g.drawString(font,"建造未通过：完整诊断",24,24,0xffcf8c,false);
       g.drawWordWrap(font,Component.literal(message),24,44,Math.max(100,width-48),0xffffff);
@@ -171,6 +172,7 @@ public final class LaneRampScreen extends Screen {
     g.drawString(font,"北 ↑  N",left+w-55,top+6,0xffffff,false);
     g.drawString(font,pending?"计算中…":checkedMesh==null?"道路位置 · 等待预览":"俯视预览",left+8,top+6,0x9ed7e6,false);
   }
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
     if(back!=null)back.setMessage(Component.literal(pending&&token==null?"取消计算并返回":"返回实景 / 预览"));
     g.fill(x,y,x+panelWidth,y+panelHeight,0xea15222e);

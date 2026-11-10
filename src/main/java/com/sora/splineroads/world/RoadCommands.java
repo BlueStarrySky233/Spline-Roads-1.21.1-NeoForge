@@ -17,15 +17,18 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.event.RegisterCommandsEvent;
-import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.server.ServerStoppedEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RenderFrameEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 import static net.minecraft.commands.Commands.*;
 
 /** Operator world-edit helpers; scans run on the server thread with a shared per-tick budget. */
-@Mod.EventBusSubscriber(modid=SplineRoads.ID)
+@EventBusSubscriber(modid=SplineRoads.ID)
 public final class RoadCommands {
   private record Species(TagKey<Block> logs,Block leaves){}
   private static final Map<String,Species> SPECIES=Map.of(
@@ -45,7 +48,7 @@ public final class RoadCommands {
     var root=literal("sr").requires(source->source.hasPermission(2));
     String[][] aliases={{"day","time set day"},{"night","time set midnight"},{"rain","weather rain"},
         {"sun","weather clear"},{"kd","kill @e[type=item]"}};
-    for(var pair:aliases)root.then(literal(pair[0]).executes(c->c.getSource().getServer().getCommands().performPrefixedCommand(c.getSource(),pair[1])));
+    for(var pair:aliases)root.then(literal(pair[0]).executes(c->{c.getSource().getServer().getCommands().performPrefixedCommand(c.getSource(),pair[1]);return 1;}));
     var treeRadius=argument("r",IntegerArgumentType.integer(1,1024)).executes(c->start(c,true,false,""));
     var treeHeight=argument("h",IntegerArgumentType.integer(1,1024)).executes(c->start(c,true,true,""));
     // Tree species are literals, so numeric heights can never be consumed as an exception.
@@ -78,10 +81,10 @@ public final class RoadCommands {
     }
     // Vanilla's FLOWERS also includes cherry leaves and mangrove propagules.
     return state.is(BlockTags.FLOWERS)&&!state.is(BlockTags.LEAVES)&&!state.is(BlockTags.SAPLINGS)
-        ||state.is(Blocks.GRASS)||state.is(Blocks.TALL_GRASS)
+        ||state.is(Blocks.SHORT_GRASS)||state.is(Blocks.TALL_GRASS)
         ||state.is(Blocks.FERN)||state.is(Blocks.LARGE_FERN)||state.is(Blocks.DEAD_BUSH);
   }
-  @SubscribeEvent public static void tick(TickEvent.ServerTickEvent event){if(event.phase==TickEvent.Phase.END)tick(event.getServer());}
+  @SubscribeEvent public static void tick(ServerTickEvent.Post event){tick(event.getServer());}
   static void tick(MinecraftServer server){
     var queue=JOBS.get(server);if(queue==null||queue.isEmpty())return;
     long deadline=System.nanoTime()+2_000_000;int budget=8192;
@@ -122,8 +125,8 @@ public final class RoadCommands {
         if(!level.hasChunkAt(pos)){skipped++;column();continue;}
         BlockState state=level.getBlockState(pos);
         if(matches(state,trees,except)){
-          var event=new net.minecraftforge.event.level.BlockEvent.BreakEvent(level,pos.immutable(),state,player);
-          if(level.mayInteract(player,pos)&&!net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(event)
+          var event=new net.neoforged.neoforge.event.level.BlockEvent.BreakEvent(level,pos.immutable(),state,player);
+          if(level.mayInteract(player,pos)&&!net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(event).isCanceled()
               &&level.setBlock(pos,state.getFluidState().createLegacyBlock(),Block.UPDATE_CLIENTS|Block.UPDATE_KNOWN_SHAPE))removed++;
         }
         if(++y>=high)column();

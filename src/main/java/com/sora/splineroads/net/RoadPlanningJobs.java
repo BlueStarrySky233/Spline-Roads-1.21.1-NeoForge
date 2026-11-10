@@ -7,6 +7,7 @@ import net.minecraft.world.item.ItemStack;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.sora.splineroads.world.ItemTag;
 /** Server-thread snapshot and publish, pure geometry between them. No blocking join/get. */
 public final class RoadPlanningJobs {
   private static final ThreadPoolExecutor WORKER=new ThreadPoolExecutor(1,1,30,TimeUnit.SECONDS,
@@ -78,8 +79,8 @@ public final class RoadPlanningJobs {
           }finally{recordPhase("finish",finished,finishNanos);}
         }catch(RuntimeException e){ACTIVE.remove(owner,job);if(!job.cancelled.get())failed(player,t,e);}
         finally{
-          if(job.cancelled.get()&&tool.getOrCreateTag().getCompound("LanePreview").getLong("Request")==job.request)
-            tool.getOrCreateTag().remove("LanePreview");
+          if(job.cancelled.get()&&ItemTag.of(tool).getCompound("LanePreview").getLong("Request")==job.request)
+            ItemTag.of(tool).remove("LanePreview");
         }
       });return null;
     });

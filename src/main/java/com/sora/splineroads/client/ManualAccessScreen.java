@@ -18,5 +18,6 @@ public final class ManualAccessScreen extends Screen {
   private void send(String action){if(pending)return;try{double value=Double.parseDouble(length.getValue());if(!Double.isFinite(value)||value<64||value>160)throw new IllegalArgumentException();payload.putDouble("SpurLength",value);var t=payload.copy();t.remove("PlannerPreview");t.putString("Action",action);pending=true;status="正在校验完整占地与连接…";ClientRoads.sendAction(t);}catch(IllegalArgumentException e){status="长度请输入64–160格";}}
   void failed(String text){pending=false;status=text;}
   @Override public boolean isPauseScreen(){return false;}
-  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderBackground(g);int x=width/2-150,y=height/2-85;g.fill(x,y,x+300,y+176,0xf015222e);g.drawString(font,title,x+12,y+13,0xffffffff,false);g.drawString(font,"接出道路长度",x+12,y+48,0xffc6dbe7,false);g.drawWordWrap(font,Component.literal(status),x+12,y+72,276,0xffd2e2eb);super.render(g,mx,my,dt);}
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
+  @Override public void render(GuiGraphics g,int mx,int my,float dt){renderTransparentBackground(g);int x=width/2-150,y=height/2-85;g.fill(x,y,x+300,y+176,0xf015222e);g.drawString(font,title,x+12,y+13,0xffffffff,false);g.drawString(font,"接出道路长度",x+12,y+48,0xffc6dbe7,false);g.drawWordWrap(font,Component.literal(status),x+12,y+72,276,0xffd2e2eb);super.render(g,mx,my,dt);}
 }

@@ -17,7 +17,7 @@ final class InterchangeEndpoints {
       chunks.node(pos);
       if (level.getBlockEntity(pos) instanceof NodeEntity) {
         var marker = RoadData.requireNode(level, pos, player);
-        return new Endpoint(marker.constructionNode(), marker, marker.saveWithoutMetadata());
+        return new Endpoint(marker.constructionNode(), marker, marker.saveWithoutMetadata(level.registryAccess()));
       }
       var nodes = saved.getList("Nodes", Tag.TAG_COMPOUND);
       var data = RoadData.get(level);

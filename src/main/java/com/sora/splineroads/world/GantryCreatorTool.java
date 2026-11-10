@@ -25,5 +25,5 @@ public final class GantryCreatorTool extends GantryTool {
     }catch(IllegalArgumentException e){player.displayClientMessage(Component.literal(e.getMessage()),false);}
     return InteractionResult.CONSUME;
   }
-  @Override public void appendHoverText(ItemStack s,Level level,List<Component> lines,TooltipFlag flag){lines.add(Component.translatable("tooltip.splineroads.gantry_creator"));}
+  @Override public void appendHoverText(ItemStack s,net.minecraft.world.item.Item.TooltipContext context,List<Component> lines,TooltipFlag flag){var level=context.level();lines.add(Component.translatable("tooltip.splineroads.gantry_creator"));}
 }

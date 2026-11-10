@@ -15,16 +15,17 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.AABB;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
 import org.joml.Matrix4f;
 
 /**
  * Region VBOs. No face traversal, triangulation, normals or per-face light reads in steady frames.
  */
-@Mod.EventBusSubscriber(modid = SplineRoads.ID, value = Dist.CLIENT)
+@EventBusSubscriber(modid = SplineRoads.ID, value = Dist.CLIENT)
 public final class RoadRenderer {
   private static final ResourceLocation
       ASPHALT = ResourceLocation.fromNamespaceAndPath(SplineRoads.ID, "textures/road/asphalt.png"),
@@ -103,6 +104,8 @@ public final class RoadRenderer {
   private static V cameraPosition = new V(0, 0, 0);
   private static volatile long epoch;
   private static int lastDraws, lastUploads, lastDistant, lastMatrixUploads;
+  /** Diagnostic counters for the batched upload path (see {@link #uploadMetrics()}). */
+  private static final java.util.Set<RoadSurface.Texture> missingMaterials = java.util.EnumSet.noneOf(RoadSurface.Texture.class);
   private static long lastVertices;
   private static double averageCpuMs,lastCpuMs;
   private static long lastSurfaceIndices;
@@ -252,7 +255,7 @@ public final class RoadRenderer {
     // ClientLevel.hasChunk is deliberately always true; getChunkAt can return
     // EmptyLevelChunk. Only this non-loading cache lookup proves real data.
     return level.getChunkSource().getChunk(pos.getX()>>4,pos.getZ()>>4,
-        net.minecraft.world.level.chunk.ChunkStatus.FULL,false)!=null;
+        net.minecraft.world.level.chunk.status.ChunkStatus.FULL,false)!=null;
   }
 
   private static int pollLight(GpuSection s,int allowance) {
@@ -529,9 +532,17 @@ public final class RoadRenderer {
     }
     // Keep active survivors in the old buffers until replacement upload is complete.
   }
+  /** Conservative world box for a 64-block region, used when no piece contributed bounds. */
+  private static AABB regionBounds(Section key){
+    V origin=key.origin();
+    return new AABB(origin.x(),origin.y()-64,origin.z(),origin.x()+64,origin.y()+320,origin.z()+64);
+  }
   private static void updateBounds(GpuSection section){
     section.bounds=section.uploadedBounds;
-    for(var p:section.pieces.values())section.bounds=section.bounds==null?p.bounds:section.bounds.minmax(p.bounds);
+    for(var p:section.pieces.values()){
+      if(p.bounds==null)continue;
+      section.bounds=section.bounds==null?p.bounds:section.bounds.minmax(p.bounds);
+    }
   }
   private static void remove(UUID id){
     RoadTerrainModels.remove(id);signalBatches.remove(id);meshVersions.remove(id);terrainVersions.remove(id);preparations.remove(id);
@@ -711,7 +722,7 @@ public final class RoadRenderer {
       glassVisible.clear();for(var s:visible){var list=(s.distant?s.far:s.near).get(RoadSurface.Texture.NOISE_BARRIER_GLASS);if(list!=null&&!list.isEmpty())glassVisible.add(s);}
       if(glassVisible.isEmpty())return;
       glassVisible.sort(java.util.Comparator.comparingDouble((GpuSection s)->s.bounds.distanceToSqr(camera)).reversed());
-      for(var s:glassVisible){var origin=s.key.origin();s.transform.set(event.getPoseStack().last().pose()).translate((float)(origin.x()-camera.x),(float)(origin.y()-camera.y),(float)(origin.z()-camera.z));}
+      for(var s:glassVisible){var origin=s.key.origin();s.transform.set(event.getModelViewMatrix()).translate((float)(origin.x()-camera.x),(float)(origin.y()-camera.y),(float)(origin.z()-camera.z));}
       draw(glassVisible,MATERIALS.get(RoadSurface.Texture.NOISE_BARRIER_GLASS),RoadSurface.Texture.NOISE_BARRIER_GLASS,event);return;
     }
     if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) return;
@@ -732,17 +743,22 @@ public final class RoadRenderer {
     int uploads = 0;
     visible.clear();glassVisible.clear();
     int renderChunks=mc.options.getEffectiveRenderDistance();
-    // Distance and frustum checks also precede lighting and uploads, including newly loaded roads.
+    // Distance checks precede lighting and uploads, including newly loaded roads.
     for (var s : regions.values()) {
-      if (s.bounds == null||s.retained.isEmpty()&&s.pieces.keySet().stream().noneMatch(ClientRoads::active)) continue;
+      if (s.bounds == null)s.bounds=regionBounds(s.key);
+      if (s.retained.isEmpty()&&s.pieces.keySet().stream().noneMatch(ClientRoads::active)) continue;
       double d = s.bounds.distanceToSqr(camera);
       if (!RoadVisibility.within(s.bounds.minX,s.bounds.minZ,s.bounds.maxX,s.bounds.maxZ,
-          camera.x,camera.z,renderChunks)||!event.getFrustum().isVisible(s.bounds)) continue;
+          camera.x,camera.z,renderChunks)) continue;
+      // Frustum culling is intentionally not used here. The frustum this stage receives rejects
+      // regions that are plainly on screen, in either world or camera-relative space, and the
+      // saving is negligible against a distant road section that would otherwise vanish.
+      // RoadVisibility.within(...) already bounds the work by render distance.
       if (d > 112 * 112) s.distant = true;
       else if (d < 88 * 88) s.distant = false; // hysteresis, no flicker near a LOD boundary
       V origin = s.key.origin();
       s.transform
-          .set(event.getPoseStack().last().pose())
+          .set(event.getModelViewMatrix())
           .translate(
               (float) (origin.x() - camera.x),
               (float) (origin.y() - camera.y),
@@ -752,11 +768,11 @@ public final class RoadRenderer {
     }
     if(!shadowPass){RoadUploadBudget.beginFrame(com.sora.splineroads.config.RoadClientConfig.VBO_UPLOAD_MICROS.get(),SmartSignClient.pendingUploadBytes());uploads=uploadVisible();}else RoadUploadBudget.drawOnly();
     cameraPosition = new V(camera.x, camera.y, camera.z);
-    var pose = event.getPoseStack();
+    var pose = WorldRenderPose.of(event);
     var buffers = mc.renderBuffers().bufferSource();
     if (!visible.isEmpty()) buffers.endBatch();
     RoadGpuTimer.begin();
-    if(!visible.isEmpty())drawPrepared(visible,event.getPoseStack(),event.getProjectionMatrix(),true);
+    if(!visible.isEmpty())drawPrepared(visible,WorldRenderPose.of(event),event.getProjectionMatrix(),true);
     RoadGpuTimer.end();
     cameraPosition = new V(camera.x, camera.y, camera.z);
     pose.pushPose();
@@ -764,8 +780,7 @@ public final class RoadRenderer {
       signalTypesUsed.clear();
       for (var road : ClientRoads.INDEX.signalsNear((int)Math.floor(camera.x) >> 4, (int)Math.floor(camera.z) >> 4)) {
         if(!ClientRoads.active(road.record.id()))continue;
-        if (road.signalBounds == null || road.signalBounds.distanceToSqr(camera) >= 128 * 128
-            || !event.getFrustum().isVisible(road.signalBounds)) continue;
+        if (road.signalBounds == null || road.signalBounds.distanceToSqr(camera) >= 128 * 128) continue;
         var faces = road.signalFaces(mc.level.getGameTime());
         var cached = signalBatches.get(road.record.id());
         if (cached == null || cached.faces() != faces) {
@@ -823,7 +838,7 @@ public final class RoadRenderer {
       finally { cameraPosition = camera; }
       var buffer = new VertexBuffer(VertexBuffer.Usage.STATIC);
       try {
-        buffer.bind(); buffer.upload(builder.end()); ghostBuffer = buffer;
+        buffer.bind(); buffer.upload(builder.build()); ghostBuffer = buffer;
       } catch (RuntimeException e) { buffer.close(); throw e; }
       finally { VertexBuffer.unbind(); }
       ghostMesh = ClientRoads.preview; ghostRoads = ClientRoads.nodePreviews;
@@ -833,7 +848,7 @@ public final class RoadRenderer {
     var type=ClientRoads.conflictPreview?CONFLICT:GHOST;
     type.setupRenderState();
     var shader = RenderSystem.getShader();
-    var transform = new Matrix4f(event.getPoseStack().last().pose()).translate(
+    var transform = new Matrix4f(event.getModelViewMatrix()).translate(
         (float)(ghostOrigin.x()-cameraPosition.x()), (float)(ghostOrigin.y()-cameraPosition.y()),
         (float)(ghostOrigin.z()-cameraPosition.z()));
     ghostBuffer.bind(); setupShader(shader, event);
@@ -959,7 +974,7 @@ public final class RoadRenderer {
 
   @SubscribeEvent
   public static void debug(
-      net.minecraftforge.client.event.CustomizeGuiOverlayEvent.DebugText event) {
+      net.neoforged.neoforge.client.event.CustomizeGuiOverlayEvent.DebugText event) {
     if (Minecraft.getInstance().level == null || !com.sora.splineroads.config.RoadClientConfig.PERF_OVERLAY.get()) return;
     event.getLeft().add(SmartSignClient.metrics());
     event.getLeft().add(uploadMetrics());
@@ -994,7 +1009,7 @@ public final class RoadRenderer {
       RoadSurface.Texture texture,
       RenderLevelStageEvent event) {drawLayer(visible,type,texture,event,false);}
   private static void drawLayer(List<GpuSection> visible,RenderType type,RoadSurface.Texture texture,RenderLevelStageEvent event,boolean paint){
-    drawLayer(visible,type,texture,event.getPoseStack(),event.getProjectionMatrix(),paint);
+    drawLayer(visible,type,texture,WorldRenderPose.of(event),event.getProjectionMatrix(),paint);
   }
   private static void drawLayer(List<GpuSection> visible,RenderType type,RoadSurface.Texture texture,PoseStack pose,Matrix4f projection,boolean paint){
     if (visible.isEmpty()) return;
@@ -1067,8 +1082,26 @@ public final class RoadRenderer {
   static void drawPrepared(List<?> sections,PoseStack pose,Matrix4f projection,boolean surface){
     @SuppressWarnings("unchecked") var list=(List<GpuSection>)sections;
     if(surface){prepareAsphaltTexture();drawLayer(list,SURFACE,null,pose,projection,false);drawLayer(list,MARKING,null,pose,projection,true);}
-    drawLayer(list,MARKING,RoadSurface.Texture.PLAIN,pose,projection,false);
-    for(var e:MATERIALS.entrySet())if(e.getKey()!=RoadSurface.Texture.NOISE_BARRIER_GLASS)drawLayer(list,e.getValue(),e.getKey(),pose,projection,false);
+    // Iterate every bucket that actually exists in the visible sections, not just the
+    // material table: a bucket whose Texture has no material entry would otherwise be
+    // silently skipped and its geometry (kerbs, poles, railings, fixtures) would vanish.
+    var keys=new java.util.LinkedHashSet<RoadSurface.Texture>();
+    for(var s:list){keys.addAll(s.near.keySet());keys.addAll(s.far.keySet());}
+    for(var entry:MATERIALS.entrySet())keys.add(entry.getKey());
+    for(var key:keys){
+      if(key==null||key==RoadSurface.Texture.NOISE_BARRIER_GLASS)continue;
+      drawLayer(list,material(key),key,pose,projection,false);
+    }
+  }
+
+  /** Render type for a texture bucket, with a visible fallback instead of a silent skip. */
+  static RenderType material(RoadSurface.Texture texture){
+    if(texture==RoadSurface.Texture.PLAIN)return MARKING;
+    var type=MATERIALS.get(texture);
+    if(type!=null)return type;
+    if(missingMaterials.add(texture))
+      System.getLogger("SplineRoads").log(System.Logger.Level.WARNING,"No render type for road texture "+texture+"; drawing it with the paint material");
+    return MARKING;
   }
   /** Deleted, replaced and cold owners are excluded without discarding neighbouring geometry. */
   private static void drawOwned(GpuSection section,VertexBuffer buffer){
@@ -1087,14 +1120,15 @@ public final class RoadRenderer {
   }
 
   /** Shared 1.20.1 shader state is uploaded once per material, not once per city region. */
-  private static void setupShader(ShaderInstance shader, RenderLevelStageEvent event) {setupShader(shader,event.getPoseStack(),event.getProjectionMatrix());}
+  private static void setupShader(ShaderInstance shader, RenderLevelStageEvent event) {setupShader(shader,WorldRenderPose.of(event),event.getProjectionMatrix());}
   static void setupShader(ShaderInstance shader,PoseStack pose,Matrix4f projection) {
     for (int i = 0; i < 12; i++) shader.setSampler("Sampler" + i, RenderSystem.getShaderTexture(i));
     if (shader.MODEL_VIEW_MATRIX != null)
       shader.MODEL_VIEW_MATRIX.set(pose.last().pose());
     if (shader.PROJECTION_MATRIX != null) shader.PROJECTION_MATRIX.set(projection);
-    if (shader.INVERSE_VIEW_ROTATION_MATRIX != null)
-      shader.INVERSE_VIEW_ROTATION_MATRIX.set(RenderSystem.getInverseViewRotationMatrix());
+    var inverseViewRotation = shader.getUniform("IViewRotMat");
+    if (inverseViewRotation != null)
+      inverseViewRotation.set(new org.joml.Matrix3f(RenderSystem.getModelViewMatrix()).transpose());
     if (shader.COLOR_MODULATOR != null) shader.COLOR_MODULATOR.set(RenderSystem.getShaderColor());
     if (shader.GLINT_ALPHA != null) shader.GLINT_ALPHA.set(RenderSystem.getShaderGlintAlpha());
     if (shader.FOG_START != null) shader.FOG_START.set(RenderSystem.getShaderFogStart());
@@ -1112,8 +1146,7 @@ public final class RoadRenderer {
   }
 
   private static AABB bounds(Piece piece) {
-    double x0 = Double.POSITIVE_INFINITY, y0 = x0, z0 = x0, x1 = -x0, y1 = -x0, z1 = -x0;
-    for (var list : List.of(piece.pavement(), piece.detail(), piece.distant()))
+    double x0 = Double.POSITIVE_INFINITY, y0 = x0, z0 = x0, x1 = -x0, y1 = -x0, z1 = -x0;    for (var list : List.of(piece.pavement(), piece.detail(), piece.distant()))
       for (var face : list)
         for (V p : face.points()) {
           x0 = Math.min(x0, p.x());
@@ -1123,6 +1156,9 @@ public final class RoadRenderer {
           y1 = Math.max(y1, p.y());
           z1 = Math.max(z1, p.z());
         }
+    // An empty piece leaves the sentinels untouched; an inverted box would make the whole
+    // region fail every frustum test and silently vanish.
+    if (!(x0 <= x1) || !(y0 <= y1) || !(z0 <= z1)) return null;
     return new AABB(x0, y0, z0, x1, y1, z1).inflate(.1);
   }
 
@@ -1161,7 +1197,7 @@ public final class RoadRenderer {
     final PoseStack pose=new PoseStack();
     final List<Batch> batches=new ArrayList<>();
     BufferBuilder builder;
-    BufferBuilder.RenderedBuffer ready;
+    com.mojang.blaze3d.vertex.MeshData ready;
     int batchIndex,pieceIndex,faceIndex;
     long vertices;
     boolean complete;
@@ -1169,7 +1205,7 @@ public final class RoadRenderer {
     Upload(GpuSection s){
       section=s;revision=s.revision;owners=s.pieces.keySet().stream().sorted().toList();pieces=owners.stream().map(s.pieces::get).toList();staged=new GpuSection(s.key);
       staged.lightBuilder=new RoadLightReadSet.Builder(s.lightReads);
-      for(var piece:pieces)staged.bounds=staged.bounds==null?piece.bounds:staged.bounds.minmax(piece.bounds);
+      for(var piece:pieces)if(piece.bounds!=null)staged.bounds=staged.bounds==null?piece.bounds:staged.bounds.minmax(piece.bounds);
       batches.add(new Batch(0,null));batches.add(new Batch(3,RoadSurface.Texture.PLAIN));
       for(int kind:new int[]{1,2})for(var texture:RoadSurface.Texture.values()){
         boolean present=false;for(var p:pieces)if((kind==1?p.near:p.far).containsKey(texture)){present=true;break;}
@@ -1201,19 +1237,21 @@ public final class RoadRenderer {
           }
           faceIndex=0;pieceIndex++;
         }
-        ready=builder.end();builder=null;
+        ready=builder.build();builder=null;
         }
         VertexBuffer buffer=null;
         if(vertices>0){
           // Read the built draw state so optional extended vertex formats are
           // charged by their actual bytes, not the vanilla 36-byte estimate.
-          if(!RoadUploadBudget.claimRoad(ready.drawState().bufferSize()))return uploads;
+          // Correctness first: a rejected claim used to leave the section permanently partial.
+          // The budget only smooths frame time, so an over-budget batch is still uploaded.
+          RoadUploadBudget.claimRoad((int)RoadUploadArena.bytes(ready));
           buffer=new VertexBuffer(VertexBuffer.Usage.STATIC);
           try {buffer.bind();var uploading=ready;ready=null;buffer.upload(uploading);}
           catch(RuntimeException|Error failure){buffer.close();throw failure;}
           finally {VertexBuffer.unbind();}
           uploads++;
-        } else {ready.release();ready=null;}
+        } else {RoadUploadArena.discard(ready);ready=null;}
         if(buffer!=null){
           staged.owners.put(buffer,List.copyOf(ranges));
           if(batch.kind==0){staged.pavement.add(buffer);staged.nearVertices+=vertices;staged.farVertices+=vertices;staged.surfaceVertices+=vertices;}
@@ -1224,7 +1262,7 @@ public final class RoadRenderer {
         vertices=0;ranges.clear();
         if(pieceIndex==pieces.size()){pieceIndex=faceIndex=0;batchIndex++;}
         // Multiple small buffers may progress within the same bounded frame budget.
-        if(uploads>=4&&batchIndex<batches.size())return uploads;
+        if(uploads>=64&&batchIndex<batches.size())return uploads;
       }
       if(!handoffReady(section))return uploads;
       section.close();section.pavement.addAll(staged.pavement);section.paint.addAll(staged.paint);section.near.putAll(staged.near);section.far.putAll(staged.far);
@@ -1243,8 +1281,8 @@ public final class RoadRenderer {
     }
     void cancel(){
       uploadCancels++;
-      if(builder!=null&&builder.building())builder.end().release();
-      if(ready!=null){ready.release();ready=null;}
+      if(builder!=null){RoadUploadArena.discard(builder.build());builder=null;}
+      if(ready!=null){RoadUploadArena.discard(ready);ready=null;}
       builder=null;staged.close();
     }
   }
@@ -1487,9 +1525,9 @@ public final class RoadRenderer {
   }
   private static void texturedVertex(PoseStack pose,VertexConsumer builder,RoadSurface.Face face,int[] lights,V n,int i){
     V p=face.points().get(i);var uv=face.uv().get(i);
-    builder.vertex(pose.last().pose(),(float)(p.x()-cameraPosition.x()),(float)(p.y()-cameraPosition.y()),(float)(p.z()-cameraPosition.z()))
-      .color((face.color()>>16)&255,(face.color()>>8)&255,face.color()&255,255).uv((float)uv.u(),(float)uv.v()).overlayCoords(OverlayTexture.NO_OVERLAY)
-      .uv2(lights[i]).normal(pose.last().normal(),(float)n.x(),(float)n.y(),(float)n.z()).endVertex();
+    builder.addVertex(pose.last().pose(),(float)(p.x()-cameraPosition.x()),(float)(p.y()-cameraPosition.y()),(float)(p.z()-cameraPosition.z()))
+      .setColor((face.color()>>16)&255,(face.color()>>8)&255,face.color()&255,255).setUv((float)uv.u(),(float)uv.v()).setOverlay(OverlayTexture.NO_OVERLAY)
+      .setLight(lights[i]).setNormal(pose.last(),(float)n.x(),(float)n.y(),(float)n.z());
   }
 
   private static void vertex(
@@ -1525,17 +1563,17 @@ public final class RoadRenderer {
       u = (float) (p.x() / 4 - Math.floor(cameraPosition.x() / 4));
       v = (float) (p.z() / 4 - Math.floor(cameraPosition.z() / 4));
     }
-    c.vertex(
+    c.addVertex(
             pose.last().pose(),
             (float) (p.x() - cameraPosition.x()),
             (float) (p.y() - cameraPosition.y()),
             (float) (p.z() - cameraPosition.z()))
-        .color((color >> 16) & 255, (color >> 8) & 255, color & 255, alpha)
-        .uv(u, v)
-        .overlayCoords(OverlayTexture.NO_OVERLAY)
-        .uv2(light)
-        .normal(pose.last().normal(), nx, ny, nz)
-        .endVertex();
+        .setColor((color >> 16) & 255, (color >> 8) & 255, color & 255, alpha)
+        .setUv(u, v)
+        .setOverlay(OverlayTexture.NO_OVERLAY)
+        .setLight(light)
+        .setNormal(pose.last(), nx, ny, nz)
+        ;
   }
 
   private RoadRenderer() {}

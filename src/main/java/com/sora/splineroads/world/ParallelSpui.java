@@ -286,7 +286,7 @@ public final class ParallelSpui {
     for(var host:d.hosts()){var old=data.index.roads.get(host.id()).record;double before=0,after=0;
       for(boolean first:new boolean[]{true,false}){var from=first?old.a():old.b();var to=first?host.a():host.b();if(from.equals(to))continue;
         var source=first?old.start():old.end();var target=first?host.start():host.end();var marker=RoadData.requireNode(level,from,player);
-        moves.add(new RoadData.NodeMove(from,to,target,marker.saveWithoutMetadata()));selected.add(from);positions.put(from.asLong(),to.asLong());
+        moves.add(new RoadData.NodeMove(from,to,target,marker.saveWithoutMetadata(level.registryAccess())));selected.add(from);positions.put(from.asLong(),to.asLong());
         if(first)before=source.position().distance(target.position());else after=source.position().distance(target.position());
       }
       if(data.streets.containsKey(host.id())){var full=data.streets.get(host.id());if(before>0||after>0)full=extend(full,before,after);

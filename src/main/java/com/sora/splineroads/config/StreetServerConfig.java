@@ -1,14 +1,14 @@
 package com.sora.splineroads.config;
 
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 /** Server-enforced planner budgets; clients cannot increase them. */
 public final class StreetServerConfig {
-  public static final ForgeConfigSpec SPEC;
-  public static final ForgeConfigSpec.IntValue MAX_CHUNKS,MAX_ROADS,MAX_JUNCTIONS,CAPTURE_COLUMNS,WORK_MICROS,MAX_UNIT_CELLS,MAX_TASK_CELLS,MAX_TASKS,PERMISSION,PREPARE_MILLIS,UNIT_INTERVAL;
-  public static final ForgeConfigSpec.BooleanValue DEFAULT_LEFT;
+  public static final ModConfigSpec SPEC;
+  public static final ModConfigSpec.IntValue MAX_CHUNKS,MAX_ROADS,MAX_JUNCTIONS,CAPTURE_COLUMNS,WORK_MICROS,MAX_UNIT_CELLS,MAX_TASK_CELLS,MAX_TASKS,PERMISSION,PREPARE_MILLIS,UNIT_INTERVAL;
+  public static final ModConfigSpec.BooleanValue DEFAULT_LEFT;
   static {
-    var b=new ForgeConfigSpec.Builder();b.push("streetPlanner");
+    var b=new ModConfigSpec.Builder();b.push("streetPlanner");
     MAX_CHUNKS=b.comment("Selected chunks per plan, hard maximum 1024").defineInRange("maxChunks",1024,16,1024);
     MAX_ROADS=b.defineInRange("maxRoads",160,4,160);MAX_JUNCTIONS=b.defineInRange("maxJunctions",80,1,128);
     CAPTURE_COLUMNS=b.defineInRange("captureColumnsPerTick",512,16,2048);WORK_MICROS=b.defineInRange("captureMicrosPerTick",3000,250,10000);

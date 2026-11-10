@@ -49,8 +49,9 @@ public final class RoadLaneConfigScreen extends Screen {
       return super.keyPressed(key,scan,mods);
     }
   }
+  @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
   @Override public void render(GuiGraphics g,int mx,int my,float dt){
-    renderBackground(g);g.fill(x-8,y-6,x+288,y+190,0xEF12212C);
+    renderTransparentBackground(g);g.fill(x-8,y-6,x+288,y+190,0xEF12212C);
     g.drawString(font,title,x,y+6,0xFFFFFF,false);
     g.drawWordWrap(font,Component.literal("数量按 A→B / B→A 分别保存。合并后的续接端口以当前位置实际断面为准；未修改的旧路保留原配置。"),x,y+114,280,0xBDD5DE);
     super.render(g,mx,my,dt);
