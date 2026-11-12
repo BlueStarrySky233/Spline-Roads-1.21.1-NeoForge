@@ -22,7 +22,11 @@ public final class RoadClientCommands {
     var perf=literal("perf").executes(c->perf(c.getSource(),!RoadClientConfig.PERF_OVERLAY.get()));
     perf.then(literal("on").executes(c->perf(c.getSource(),true)));
     perf.then(literal("off").executes(c->perf(c.getSource(),false)));
-    event.getDispatcher().register(literal("sr").then(perf)
+    event.getDispatcher().register(literal("sr")
+        .then(literal("previewdepth").executes(c->previewDepth(c.getSource(),!RoadClientConfig.PREVIEW_DEPTH_TEST.get()))
+          .then(literal("on").executes(c->previewDepth(c.getSource(),true)))
+          .then(literal("off").executes(c->previewDepth(c.getSource(),false))))
+        .then(perf)
         .then(literal("signs").executes(c->signs(c.getSource(),!RoadSignVisibility.enabled()))
           .then(literal("on").executes(c->signs(c.getSource(),true)))
           .then(literal("off").executes(c->signs(c.getSource(),false))))
@@ -44,6 +48,10 @@ public final class RoadClientCommands {
   }
   private static int signs(net.minecraft.commands.CommandSourceStack source,boolean enabled){
     RoadSignVisibility.set(enabled);source.sendSuccess(()->Component.literal("SR 全部标牌已"+(enabled?"显示":"隐藏（性能排查）")+"；/sr signs on|off"),false);return 1;
+  }
+  private static int previewDepth(net.minecraft.commands.CommandSourceStack source,boolean enabled){
+    RoadClientConfig.PREVIEW_DEPTH_TEST.set(enabled);
+    source.sendSuccess(()->Component.literal("SR 建造预览深度测试已"+(enabled?"开启（会被地形遮挡）":"关闭（透过地形显示）")+"；/sr previewdepth on|off"),false);return 1;
   }
   private static int perf(net.minecraft.commands.CommandSourceStack source,boolean enabled){
     RoadClientConfig.PERF_OVERLAY.set(enabled); // Forge's file config autosaves.

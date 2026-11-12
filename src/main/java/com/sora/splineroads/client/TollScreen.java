@@ -133,7 +133,7 @@ public final class TollScreen extends Screen {
     g.enableScissor(x+2,y+23,x+w-2,y+h-2);g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);
     var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
     for(var f:mapFaces){var points=f.points();int c=f.color();for(int i=1;i+1<points.size();i++)for(var v:List.of(points.get(0),points.get(i),points.get(i+1)))buffer.addVertex(pose,(float)(ox+(v.x()-mapMinX)*scale),(float)(oz+(v.z()-mapMinZ)*scale),0).setColor((c>>16)&255,(c>>8)&255,c&255,255);}
-    BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();
+    var built=buffer.build();if(built!=null)BufferUploader.drawWithShader(built);RenderSystem.disableBlend();RenderSystem.enableCull();
     for(int i=0;i<2;i++){var v=(i==0?mesh.first():mesh.last()).center();String label=i==0?"A":"B";int px=(int)(ox+(v.x()-mapMinX)*scale),pz=(int)(oz+(v.z()-mapMinZ)*scale);g.drawString(font,label,Math.max(x+4,Math.min(x+w-font.width(label)-4,px)),Math.max(y+25,Math.min(y+h-font.lineHeight-4,pz)),0xffffff,false);}g.disableScissor();
   }
   @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}

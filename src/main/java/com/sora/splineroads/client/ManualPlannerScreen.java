@@ -146,7 +146,8 @@ public final class ManualPlannerScreen extends Screen {
   private Point pick(double x,double y){Point best=null;double distance=8;for(var p:points){double d=Math.hypot(sx(p.at().x())-x,sy(p.at().z())-y);if(d<8&&(best==null||p.at().y()>best.at().y()+.01||Math.abs(p.at().y()-best.at().y())<=.01&&d<distance)){var cover=road(x,y);if(cover!=null){var q=RoadQueries.horizontal(cover.mesh,p.at());if(q.horizontalDistance()<q.sample().halfWidth()&&q.sample().center().y()>p.at().y()+.1)continue;}distance=d;best=p;}}return best;}
   private RoadIndex.Built road(double x,double y){V hit=new V(wx(x),0,wz(y));RoadIndex.Built best=null;double height=-Double.MAX_VALUE,distance=Double.MAX_VALUE;for(var b:mapRoads.values()){if(hidden.contains(b.record.id())||!visible(b.mesh))continue;var q=RoadQueries.horizontal(b.mesh,hit);double h=q.sample().center().y();if(q.horizontalDistance()<=Math.max(q.sample().halfWidth(),5/zoom)&&(h>height+.01||Math.abs(h-height)<=.01&&(q.horizontalDistance()<distance||q.horizontalDistance()==distance&&(best==null||b.record.id().compareTo(best.record.id())<0)))){distance=q.horizontalDistance();height=h;best=b;}}return best;}
   private void target(CompoundTag t,Point point,UUID road,V at){t.putDouble("X",at.x());t.putDouble("Y",at.y());t.putDouble("Z",at.z());if(point!=null){t.putString("PointKind",point.kind());if(point.pos()!=null)t.putLong("Pos",point.pos().asLong());if(point.id()!=null){t.putUUID("Point",point.id());t.putString("PointKind",point.kind());}if(point.road()!=null)t.putUUID("Road",point.road());}else if(road!=null)t.putUUID("Road",road);}
-  private void send(String action,Point point,UUID id,double mx,double my){var t=command(action);if(point!=null||id!=null||action.equals("manualClick")){V at=point!=null?point.at():terrain(mx,my);if(id!=null&&point==null){var b=mapRoads.get(id);if(b!=null){var q=RoadQueries.horizontal(b.mesh,new V(wx(mx),0,wz(my)));at=new V(wx(mx),q.sample().center().y(),wz(my));}}if(at==null){status="该位置尚未加载，请靠近后重试";return;}target(t,point,id,at);}t.putBoolean("Ctrl",hasControlDown());t.putBoolean("Alt",com.mojang.blaze3d.platform.InputConstants.isKeyDown(minecraft.getWindow().getWindow(),GLFW.GLFW_KEY_LEFT_ALT));ClientRoads.sendAction(t);}
+  private void send(String action,Point point,UUID id,double mx,double my){var t=command(action);if(point!=null||id!=null||action.equals("manualClick")){V at=point!=null?point.at():terrain(mx,my);if(id!=null&&point==null){var b=mapRoads.get(id);if(b!=null){var q=RoadQueries.horizontal(b.mesh,new V(wx(mx),0,wz(my)));at=new V(wx(mx),q.sample().center().y(),wz(my));}}if(at==null){status="该位置尚未加载，请靠近后重试";return;}target(t,point,id,at);}t.putBoolean("Ctrl",hasControlDown());t.putBoolean("Alt",com.mojang.blaze3d.platform.InputConstants.isKeyDown(minecraft.getWindow().getWindow(),GLFW.GLFW_KEY_LEFT_ALT));
+    ClientRoads.sendAction(t);}
   @Override public boolean mouseClicked(double x,double y,int button){
     if(menuX>=0){if(button==0&&x>=menuX&&x<menuX+122&&y>=menuY&&y<menuY+menuRows()*22){int item=(int)(y-menuY)/22;menuX=-1;if(item==0){if(selected!=null&&!selected.kind().equals("rail"))minecraft.setScreen(new PointDetails(selected));else send("manualDetails",selected,selectedRoad,x,y);}if(item==1)remove();if(item==2&&selectedRoad!=null){hidden.add(selectedRoad);selectedRoad=null;selected=null;status="已暂时隐藏；按 H 恢复全部";}if(item==2&&selectedRoad==null&&selected!=null){moving=true;movingAt=selected.at();axis=0;confirmAt=0;status="拖动 X / Z 箭头；双击左键确认，右键取消";}return true;}menuX=-1;}
     if(moving&&map(x,y)){
@@ -171,7 +172,19 @@ public final class ManualPlannerScreen extends Screen {
   void cycleArms(double delta){if(delta==0)return;arms=3+Math.floorMod(arms-3+(delta>0?1:-1),4);choose(tool);}
   @Override public boolean keyPressed(int key,int scan,int modifiers){if(key>=GLFW.GLFW_KEY_1&&key<=GLFW.GLFW_KEY_7){choose(key-GLFW.GLFW_KEY_1+1);return true;}if(hasControlDown()&&(key==GLFW.GLFW_KEY_Z||key==GLFW.GLFW_KEY_Y)){ClientRoads.sendAction(command(key==GLFW.GLFW_KEY_Z?"manualUndo":"manualRedo"));return true;}if(key==GLFW.GLFW_KEY_H){hidden.clear();status="已恢复全部道路和铁路路基";return true;}if(key==GLFW.GLFW_KEY_DELETE){remove();return true;}if(ManualPlannerClient.KEY.matches(key,scan)){onClose();return true;}if(Set.of(GLFW.GLFW_KEY_W,GLFW.GLFW_KEY_A,GLFW.GLFW_KEY_S,GLFW.GLFW_KEY_D,GLFW.GLFW_KEY_LEFT_SHIFT).contains(key)){keys.add(key);return true;}return super.keyPressed(key,scan,modifiers);}
   @Override public boolean keyReleased(int key,int scan,int modifiers){keys.remove(key);return super.keyReleased(key,scan,modifiers);}
-  private void remove(){if(selected!=null)send("manualDelete",selected,null,sx(selected.at().x()),sy(selected.at().z()));else if(selectedRoad!=null){var b=mapRoads.get(selectedRoad);if(b!=null)send("manualDelete",null,selectedRoad,sx(b.mesh.first().center().x()),sy(b.mesh.first().center().z()));}}
+  private void remove(){
+    // The deleted endpoint must stop being the click target immediately, and the map has to be
+    // rebuilt: keeping the stale selection made every later click act on a vanished endpoint.
+    if(selected!=null){
+      send("manualDelete",selected,null,sx(selected.at().x()),sy(selected.at().z()));
+      selected=null;openSelected=false;status="已请求删除该端点";
+    } else if(selectedRoad!=null){
+      var b=mapRoads.get(selectedRoad);
+      if(b!=null)send("manualDelete",null,selectedRoad,sx(b.mesh.first().center().x()),sy(b.mesh.first().center().z()));
+      selectedRoad=null;status="已请求删除该道路";
+    }
+    refresh();
+  }
   private void move(V at){var t=command("manualMove");target(t,selected,null,at);ClientRoads.sendAction(t);}
   @Override public void onClose(){ManualPlannerClient.close();}
   @Override public void removed(){keys.clear();pressed=false;}
@@ -213,7 +226,7 @@ public final class ManualPlannerScreen extends Screen {
   private void drawRoads(GuiGraphics g){
     collect();var strips=preparedStrips;
     g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
-    for(var strip:strips){var b=strip.road();var a=strip.a();var c=strip.b();int color=b.record.id().equals(selectedRoad)?0xffffd76b:roadColor(b,a);V[] quad={a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),c.at(-c.halfWidth(),0),c.at(c.halfWidth(),0)};for(V p:quad)buffer.addVertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).setColor((color>>16)&255,(color>>8)&255,color&255,255);}BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();
+    for(var strip:strips){var b=strip.road();var a=strip.a();var c=strip.b();int color=b.record.id().equals(selectedRoad)?0xffffd76b:roadColor(b,a);V[] quad={a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),c.at(-c.halfWidth(),0),c.at(c.halfWidth(),0)};for(V p:quad)buffer.addVertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).setColor((color>>16)&255,(color>>8)&255,color&255,255);}var built=buffer.build();if(built!=null)BufferUploader.drawWithShader(built);RenderSystem.disableBlend();RenderSystem.enableCull();
   }
   private List<Mesh> previewMeshes(){
     if(!ManualPlannerClient.hasMapPreview()||ClientRoads.conflictPreview)return List.of();
@@ -224,7 +237,7 @@ public final class ManualPlannerScreen extends Screen {
     g.flush();RenderSystem.disableCull();RenderSystem.enableBlend();RenderSystem.defaultBlendFunc();RenderSystem.setShader(GameRenderer::getPositionColorShader);
     var buffer=Tesselator.getInstance().begin(VertexFormat.Mode.QUADS,DefaultVertexFormat.POSITION_COLOR);var pose=g.pose().last().pose();
     for(var mesh:meshes){if(!visible(mesh))continue;var samples=mesh.samples();for(int i=1;i<samples.size();i++){var a=samples.get(i-1);var b=samples.get(i);for(V p:List.of(a.at(a.halfWidth(),0),a.at(-a.halfWidth(),0),b.at(-b.halfWidth(),0),b.at(b.halfWidth(),0)))buffer.addVertex(pose,(float)sx(p.x()),(float)sy(p.z()),0).setColor(67,221,136,235);}}
-    BufferUploader.drawWithShader(buffer.build());RenderSystem.disableBlend();RenderSystem.enableCull();g.drawString(font,"绿色：待建预览",left()+8,top()+8,0xff74ffae,false);
+    var built=buffer.build();if(built!=null)BufferUploader.drawWithShader(built);RenderSystem.disableBlend();RenderSystem.enableCull();g.drawString(font,"绿色：待建预览",left()+8,top()+8,0xff74ffae,false);
   }
   final class PlannerSettings extends Screen {
     private int radius=state.contains("Radius")?state.getInt("Radius"):256,steps=state.contains("MaxUndo")?state.getInt("MaxUndo"):30;

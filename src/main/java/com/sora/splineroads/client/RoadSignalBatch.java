@@ -37,7 +37,10 @@ final class RoadSignalBatch {
     if(plateBuffer!=null&&plateLight==light)return plateBuffer;
     var builder=PLATE_ARENA.begin(DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP);
     for(var data:data().values())for(int i=0;i<data.length;i+=STRIDE){int color=data[i+3];builder.addVertex(value(data,i),value(data,i+1),value(data,i+2)).setColor((color>>16)&255,(color>>8)&255,color&255,255).setUv(value(data,i+4),value(data,i+5)).setLight(light);}
-    var built=builder.build();var next=new VertexBuffer(VertexBuffer.Usage.STATIC);try{next.bind();next.upload(built);}catch(RuntimeException|Error failure){next.close();throw failure;}finally{VertexBuffer.unbind();}
+    var built=builder.build();
+    // BufferBuilder.build() returns null when the batch holds no vertices; uploading null throws.
+    if(built==null)return plateBuffer;
+    var next=new VertexBuffer(VertexBuffer.Usage.STATIC);try{next.bind();next.upload(built);}catch(RuntimeException|Error failure){next.close();throw failure;}finally{VertexBuffer.unbind();}
     close();plateBuffer=next;plateLight=light;plateUploads++;return next;
   }
   /** Static opaque artwork shares one shader/material setup; only origin matrices change. */
@@ -46,7 +49,7 @@ final class RoadSignalBatch {
     var buffers=new ArrayList<VertexBuffer>(batches.size());for(int i=0;i<batches.size();i++)buffers.add(batches.get(i).buffer(lights.get(i)));
     type.setupRenderState();var shader=com.mojang.blaze3d.systems.RenderSystem.getShader();
     try{RoadRenderer.setupShader(shader,pose,projection);var transform=new org.joml.Matrix4f();
-      for(int i=0;i<batches.size();i++){var origin=batches.get(i).origin;transform.set(pose.last().pose()).translate((float)(origin.x()-camera.x()),(float)(origin.y()-camera.y()),(float)(origin.z()-camera.z()));if(shader.MODEL_VIEW_MATRIX!=null){shader.MODEL_VIEW_MATRIX.set(transform);shader.MODEL_VIEW_MATRIX.upload();}buffers.get(i).bind();buffers.get(i).draw();}
+      for(int i=0;i<batches.size();i++){var buffer=buffers.get(i);if(buffer==null)continue;var origin=batches.get(i).origin;transform.set(pose.last().pose()).translate((float)(origin.x()-camera.x()),(float)(origin.y()-camera.y()),(float)(origin.z()-camera.z()));if(shader.MODEL_VIEW_MATRIX!=null){shader.MODEL_VIEW_MATRIX.set(transform);shader.MODEL_VIEW_MATRIX.upload();}buffer.bind();buffer.draw();}
     }finally{shader.clear();VertexBuffer.unbind();type.clearRenderState();}
   }
   private final EnumMap<Texture,int[]> materials=new EnumMap<>(Texture.class);

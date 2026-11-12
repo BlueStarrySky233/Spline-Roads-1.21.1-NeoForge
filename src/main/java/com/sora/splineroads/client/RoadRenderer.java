@@ -106,6 +106,15 @@ public final class RoadRenderer {
   private static int lastDraws, lastUploads, lastDistant, lastMatrixUploads;
   /** Diagnostic counters for the batched upload path (see {@link #uploadMetrics()}). */
   private static final java.util.Set<RoadSurface.Texture> missingMaterials = java.util.EnumSet.noneOf(RoadSurface.Texture.class);
+  /** Temporary probe: reports the buckets and textures of faces near a point. */
+  /** Strictly increasing lifts: deck above the block tops, furniture above the deck, markings on top. */
+  private static final double PAVEMENT_LIFT=0.004;
+  private static final double DETAIL_LIFT=0.008;
+  private static final double PAINT_LIFT=0.012;
+  /** Stripes kept inside the pavement bucket; must clear the asphalt by a depth-safe margin. */
+  private static final double STRIPE_LIFT=0.020;
+  /** Extra height per furniture texture so two overlapped materials never share a plane. */
+  private static final double TEXTURE_STEP=0.0012;
   private static long lastVertices;
   private static double averageCpuMs,lastCpuMs;
   private static long lastSurfaceIndices;
@@ -124,9 +133,60 @@ public final class RoadRenderer {
     private static List<RoadSurface.Face> splitWalks(List<RoadSurface.Face> faces){
       var result=new ArrayList<RoadSurface.Face>();for(var f:faces)result.addAll(RoadTerrainMesh.walkSurface(f)?RoadSurfaceSections.split(List.of(f)):List.of(f));return result;
     }
-    static Prepared of(Layers layers) {
-      var piece=new Piece(RoadUploadBudget.faces(RoadSurfaceSections.split(layers.surface().pavement())),RoadUploadBudget.faces(splitWalks(layers.shared().detail())),RoadUploadBudget.faces(splitWalks(layers.shared().distant())));
-      var paint=RoadUploadBudget.faces(RoadSurfaceSections.split(layers.surface().detail()));
+    /** Paint shares the asphalt plane; raise it by a hair so the two never z-fight. */
+    private static List<RoadSurface.Face> lift(List<RoadSurface.Face> faces,double dy){
+      if(faces.isEmpty())return faces;
+      var out=new ArrayList<RoadSurface.Face>(faces.size());
+      for(var f:faces){
+        var points=new ArrayList<V>(f.points().size());
+        for(var p:f.points())points.add(new V(p.x(),p.y()+dy,p.z()));
+        out.add(new RoadSurface.Face(points,f.color(),f.emissive(),f.texture(),f.uv()));
+      }
+      return List.copyOf(out);
+    }
+    /**
+     * The road compiler keeps painted stripes in the pavement list: only faces coloured
+     * 0xDCDCDC are bare asphalt. Both share one plane, so the stripe has to sit above it.
+     */
+    private static List<RoadSurface.Face> liftPavement(List<RoadSurface.Face> faces,double bias){
+      if(faces.isEmpty())return faces;
+      var out=new ArrayList<RoadSurface.Face>(faces.size());
+      for(var f:faces){
+        double dy=PAVEMENT_LIFT+bias+(f.color()==0xDCDCDC?0:STRIPE_LIFT);
+        var points=new ArrayList<V>(f.points().size());
+        for(var p:f.points())points.add(new V(p.x(),p.y()+dy,p.z()));
+        out.add(new RoadSurface.Face(points,f.color(),f.emissive(),f.texture(),f.uv()));
+      }
+      return List.copyOf(out);
+    }
+    static Prepared of(Layers layers) { return of(layers,0); }
+    /**
+     * Furniture textures overlap only where the road compiler stacks them (a kerb under a bike
+     * lane near a junction). Giving each texture its own rung keeps any two of them from sharing
+     * a plane, which is what produced the flickering seam.
+     */
+    private static List<RoadSurface.Face> liftByTexture(List<RoadSurface.Face> faces,double base){
+      if(faces.isEmpty())return faces;
+      var groups=new EnumMap<RoadSurface.Texture,List<RoadSurface.Face>>(RoadSurface.Texture.class);
+      for(var f:faces)groups.computeIfAbsent(f.texture(),k->new ArrayList<>()).add(f);
+      var out=new ArrayList<RoadSurface.Face>(faces.size());
+      for(var entry:groups.entrySet())out.addAll(lift(entry.getValue(),base+entry.getKey().ordinal()*TEXTURE_STEP));
+      return List.copyOf(out);
+    }
+    /**
+     * Two roads meeting at a junction can emit overlapping asphalt at the same height. Their
+     * triangulation differs, so the per-pixel depth comparison flips along the seam and the
+     * shared edge shimmers. A small deterministic offset per road makes one of them win.
+     */
+    static double roadBias(java.util.UUID id) { return (Math.abs(id.hashCode()) % 12) * 0.0004; }
+    static Prepared of(Layers layers,double bias) {
+      // The deck sits exactly on the integer top face of the blocks below it (probe: pavement at
+      // y=-60.000), so the chunk mesh and the road mesh share depth and the shared edge flickers.
+      // A sub-centimetre lift keeps every road face just above that plane.
+      var piece=new Piece(liftPavement(RoadUploadBudget.faces(RoadSurfaceSections.split(layers.surface().pavement())),bias),
+          liftByTexture(RoadUploadBudget.faces(splitWalks(layers.shared().detail())),DETAIL_LIFT+bias),
+          liftByTexture(RoadUploadBudget.faces(splitWalks(layers.shared().distant())),DETAIL_LIFT+bias));
+      var paint=lift(RoadUploadBudget.faces(RoadSurfaceSections.split(layers.surface().detail())),PAINT_LIFT);
       var near=new EnumMap<RoadSurface.Texture,List<RoadSurface.Face>>(RoadSurface.Texture.class);
       var far=new EnumMap<RoadSurface.Texture,List<RoadSurface.Face>>(RoadSurface.Texture.class);
       for(var f:piece.detail())near.computeIfAbsent(f.texture(),k->new ArrayList<>()).add(f);
@@ -701,7 +761,7 @@ public final class RoadRenderer {
                     var surfaces=windowPreparation.context.prepare(window,surfaceWanted,terrainWanted);RoadPlanningBudget.check();
                     var terrain=terrainWanted?windowPreparation.terrainIndex.replace(window,RoadTerrainMesh.source(surfaces.exact())):null;
                     Map<Section,Prepared> result=surfaceWanted?new LinkedHashMap<>():null;
-                    if(surfaceWanted){if(windowPreparation.structures==null)windowPreparation.structures=new RoadMeshSurfaces.Structures(built,windowPreparation.windows);windowPreparation.structures.layers(surfaces.surface(),window).forEach((key,piece)->result.put(key,Prepared.of(piece)));}
+                    if(surfaceWanted){if(windowPreparation.structures==null)windowPreparation.structures=new RoadMeshSurfaces.Structures(built,windowPreparation.windows);windowPreparation.structures.layers(surfaces.surface(),window).forEach((key,piece)->result.put(key,Prepared.of(piece,Prepared.roadBias(id))));}
                     return new MeshResult(result,terrain);
                     }finally{
                       // Cancellation may retain a newly constructed Context in
@@ -838,7 +898,9 @@ public final class RoadRenderer {
       finally { cameraPosition = camera; }
       var buffer = new VertexBuffer(VertexBuffer.Usage.STATIC);
       try {
-        buffer.bind(); buffer.upload(builder.build()); ghostBuffer = buffer;
+        var ghostData=builder.build();
+      // build() returns null for an empty batch; VertexBuffer.upload(null) throws.
+      if(ghostData!=null){buffer.bind(); buffer.upload(ghostData); ghostBuffer = buffer;}
       } catch (RuntimeException e) { buffer.close(); throw e; }
       finally { VertexBuffer.unbind(); }
       ghostMesh = ClientRoads.preview; ghostRoads = ClientRoads.nodePreviews;
@@ -860,13 +922,25 @@ public final class RoadRenderer {
       if(shader.FOG_END!=null){shader.FOG_END.set(1_000_001f);shader.FOG_END.upload();}
     }
     if (shader.MODEL_VIEW_MATRIX != null) { shader.MODEL_VIEW_MATRIX.set(transform); shader.MODEL_VIEW_MATRIX.upload(); }
+    // Planning overlay: depth testing is a preference. Keeping it on is the default, so the
+    // preview is occluded by terrain like real geometry. The crawling edge came from drawing
+    // the preview coplanar with the ground, where the depth comparison flips per pixel as the
+    // camera moves; a polygon offset (same constants vanilla uses for decals) biases it toward
+    // the camera without moving the geometry or changing what actually occludes it.
+    boolean depthTest = com.sora.splineroads.config.RoadClientConfig.PREVIEW_DEPTH_TEST.get();
+    if (!depthTest) RenderSystem.disableDepthTest();
+    else { RenderSystem.enablePolygonOffset(); RenderSystem.polygonOffset(-1.0f, -10.0f); }
     ghostBuffer.draw(); lastDraws++;
+    if (!depthTest) RenderSystem.enableDepthTest();
+    else { RenderSystem.polygonOffset(0.0f, 0.0f); RenderSystem.disablePolygonOffset(); }
     shader.clear(); VertexBuffer.unbind(); type.clearRenderState();
   }
   private static void emitPreview(PoseStack pose, VertexConsumer c) {
     var mc = Minecraft.getInstance();
       boolean conflict=ClientRoads.conflictPreview;
-      double lift=conflict?.06:-.025;
+      // Kept clearly above the surface: with depth testing on, a coplanar overlay is simply
+      // hidden, which looked like the preview had disappeared.
+      double lift=conflict?.06:.06;
       int walkColor=conflict?0xFF5D45:0x9DE69A;
       var previews =
           ClientRoads.nodePreviews.isEmpty()
@@ -1017,6 +1091,12 @@ public final class RoadRenderer {
     for(var s:visible){var list=paint?s.paint:texture==null?s.pavement:(s.distant?s.far:s.near).get(texture);if(drawable(s,list)){present=true;break;}}
     if(!present)return;
     type.setupRenderState();
+    // Sidewalks and markings share the asphalt plane (probe: CONCRETE and PLAIN both at y=-60.000),
+    // so the per-pixel depth comparison flips and the shared edge flickers while moving. Every
+    // layer except the asphalt itself is biased toward the camera, which gives a stable winner
+    // without moving any geometry.
+    boolean biased = paint || texture != null;
+    if (biased) { RenderSystem.enablePolygonOffset(); RenderSystem.polygonOffset(-1.0f, -10.0f); }
     ShaderInstance shader = RenderSystem.getShader();
     boolean applied = false;
     for (var s : visible) {
@@ -1033,6 +1113,7 @@ public final class RoadRenderer {
       for(var buffer:buffers)drawOwned(s,buffer);
     }
     if (applied) shader.clear();
+    if (biased) { RenderSystem.polygonOffset(0.0f, 0.0f); RenderSystem.disablePolygonOffset(); }
     VertexBuffer.unbind();
     type.clearRenderState();
   }
@@ -1240,7 +1321,7 @@ public final class RoadRenderer {
         ready=builder.build();builder=null;
         }
         VertexBuffer buffer=null;
-        if(vertices>0){
+        if(vertices>0&&ready!=null){
           // Read the built draw state so optional extended vertex formats are
           // charged by their actual bytes, not the vanilla 36-byte estimate.
           // Correctness first: a rejected claim used to leave the section permanently partial.

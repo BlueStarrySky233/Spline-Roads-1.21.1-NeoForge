@@ -8,7 +8,7 @@ public final class RoadClientConfig {
   public static final ModConfigSpec SPEC;
   public static final ModConfigSpec.EnumValue<com.sora.splineroads.core.RoadSlicing.Connection> SPLIT_CONNECTION;
   public static final ModConfigSpec.EnumValue<com.sora.splineroads.core.StreetPlan.Style> STREET_STYLE;
-  public static final ModConfigSpec.BooleanValue PERF_OVERLAY,SHOW_SIGNS;
+  public static final ModConfigSpec.BooleanValue PERF_OVERLAY,SHOW_SIGNS,PREVIEW_DEPTH_TEST;
   public static final ModConfigSpec.EnumValue<SurfaceBackend> SURFACE_BACKEND;
   public static final ModConfigSpec.IntValue TERRAIN_SECTIONS_PER_FRAME;
   public static final ModConfigSpec.IntValue VBO_UPLOAD_MICROS;
@@ -17,6 +17,10 @@ public final class RoadClientConfig {
     var b=new ModConfigSpec.Builder();b.push("rendering");
     SHOW_SIGNS=b.comment("Show road signs by default. /sr signs off skips sign baking and drawing without changing saved signs; /sr signs on restores display.").define("showSigns",true);
     PERF_OVERLAY=b.comment("Show SR performance overlay; toggle with /sr perf.").define("perfOverlay",false);
+    PREVIEW_DEPTH_TEST=b.comment("Depth-test the road build preview. On (default) the preview is occluded by terrain",
+        "like real geometry; off draws it through terrain, which stops the outline from crawling while moving.",
+        "Toggle with /sr previewdepth on|off.")
+        .define("previewDepthTest",true);
     SURFACE_BACKEND=b.comment("AUTO: terrain ONLY while an Iris/Oculus shader pack is actually rendering; otherwise VBO.",
         "TERRAIN submits asphalt/paint through chunk block rendering, enabling terrain shader materials.",
         "Puddle appearance still depends on the shader pack. VBO is the legacy compatibility fallback.",

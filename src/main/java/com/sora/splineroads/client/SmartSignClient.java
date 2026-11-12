@@ -5,6 +5,7 @@ import com.sora.splineroads.core.SmartSigns.*;
 import com.sora.splineroads.core.RoadGeometry.*;
 import com.sora.splineroads.world.*;
 import com.mojang.math.Axis;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.renderer.*;
@@ -199,7 +200,12 @@ public final class SmartSignClient {
     cache.put(s.key(),value);bytes+=value.bytes();failed.remove(s.key());return value;
   }
 
-  public static void render(RenderLevelStageEvent event){if(!RoadSignVisibility.enabled()){frameCandidates=frameDrawn=frameBakes=frameCulled=frameCandidateVisits=gpuBytes=residentPlates=streamedPlates=pendingUploadBytes=0;pendingUploads=false;frameCpuMs=0;return;}long frameStart=System.nanoTime();var mc=Minecraft.getInstance();if(mc.level==null)return;if(resourcesDirty){resourcesDirty=false;clearCache();release(previewMesh);TollNameRenderer.clear();if(preview!=null){try{previewMesh=bake(preview,previewRoad,null);}catch(IllegalArgumentException ex){previewMesh=null;}}}var pos=event.getCamera().getPosition();V eye=new V(pos.x,pos.y,pos.z);var buffers=mc.renderBuffers().bufferSource();var used=new HashSet<RenderType>();var pose=WorldRenderPose.of(event);boolean editor=mc.player!=null&&(mc.player.getMainHandItem().is(SplineRoads.TEXT_EDITOR.get())||mc.player.getOffhandItem().is(SplineRoads.TEXT_EDITOR.get()));var visible=editor?new ArrayList<Baked>():null;
+  public static void render(RenderLevelStageEvent event){if(!RoadSignVisibility.enabled()){frameCandidates=frameDrawn=frameBakes=frameCulled=frameCandidateVisits=gpuBytes=residentPlates=streamedPlates=pendingUploadBytes=0;pendingUploads=false;frameCpuMs=0;return;}long frameStart=System.nanoTime();var mc=Minecraft.getInstance();if(mc.level==null)return;if(resourcesDirty){resourcesDirty=false;clearCache();release(previewMesh);TollNameRenderer.clear();if(preview!=null){try{previewMesh=bake(preview,previewRoad,null);}catch(IllegalArgumentException ex){previewMesh=null;}}}var pos=event.getCamera().getPosition();V eye=new V(pos.x,pos.y,pos.z);var buffers=mc.renderBuffers().bufferSource();var used=new HashSet<RenderType>();var pose=WorldRenderPose.of(event);
+// Immediate-mode geometry (MultiBufferSource) is transformed by the RenderType's own shader,
+// which already applies the camera rotation. Feeding the rotated world pose into addVertex
+// would rotate it twice and make the geometry follow the camera, so these paths get an
+// identity pose and pre-translate their vertices by (origin - eye) themselves.
+var immediate=new PoseStack();boolean editor=mc.player!=null&&(mc.player.getMainHandItem().is(SplineRoads.TEXT_EDITOR.get())||mc.player.getOffhandItem().is(SplineRoads.TEXT_EDITOR.get()));var visible=editor?new ArrayList<Baked>():null;
     var candidates=visibleCandidates(eye,event.getFrustum()::isVisible);var keys=new HashSet<Key>();
     frameCandidates=candidates.size();frameBakes=0;bakeDeadline=System.nanoTime()+2_000_000L;
     var drawn=new ArrayList<Baked>();var lights=new ArrayList<Integer>();
@@ -217,7 +223,7 @@ public final class SmartSignClient {
     // Batch body submission with the original transformed/quantized normals.
     // Static artwork shares shader state without re-packing its many vertices.
     buffers.endBatch();
-    for(int i=0;i<drawn.size();i++)drawn.get(i).batch().emit(pose,buffers,eye,t->MATERIAL,used,lights.get(i));
+    for(int i=0;i<drawn.size();i++)drawn.get(i).batch().emit(immediate,buffers,eye,t->MATERIAL,used,lights.get(i));
     buffers.endBatch(MATERIAL);used.remove(MATERIAL);
     // Only resident VBOs have a count cap. Every hot CPU object, including the
     // 513th small sign, keeps its expanded data and can stream without rebaking.
@@ -225,17 +231,17 @@ public final class SmartSignClient {
     for(int i=0;i<drawn.size();i++){var plate=drawn.get(i).plate();if(admittedGpuCount<MAX_RESIDENT&&admittedGpuBytes+plate.gpuBytes()<=GPU_BYTES){admittedGpuCount++;admittedGpuBytes+=plate.gpuBytes();if(plate.preparePlate(lights.get(i))){gpuBytes+=plate.gpuBytes();resident.add(plate);residentLight.add(plate.residentLight());}else streaming.add(i);if(!plate.currentLight(lights.get(i))){pendingUploads=true;pendingUploadBytes=Math.max(pendingUploadBytes,plate.gpuBytes());}}else{plate.close();streaming.add(i);}}
     for(var b:cache.values())if(!visibleKeys.contains(b.state().key()))b.plate().close();
     RoadSignalBatch.drawPlates(resident,residentLight,pose,eye,PLATE_MATERIAL,event.getProjectionMatrix());
-    for(int i:streaming)drawn.get(i).plate().emitPlate(pose,buffers,eye,PLATE_MATERIAL,used,lights.get(i));
+    for(int i:streaming)drawn.get(i).plate().emitPlate(immediate,buffers,eye,PLATE_MATERIAL,used,lights.get(i));
     if(!streaming.isEmpty())buffers.endBatch(PLATE_MATERIAL);residentPlates=resident.size();streamedPlates=streaming.size();
     for(int i=0;i<drawn.size();i++){var b=drawn.get(i);int light=lights.get(i);var o=b.layout().origin();
       if(o.distance(eye)>80)continue;
       for(var view:b.views()){if(eye.sub(view.origin()).dot(view.front())<=0)continue;
-      for(var line:b.lines()){V at=view.at(line.x(),line.y(),SmartSigns.TEXT);pose.pushPose();pose.translate(at.x()-eye.x(),at.y()-eye.y(),at.z()-eye.z());pose.mulPose(Axis.YP.rotation((float)Math.atan2(-view.right().z(),view.right().x())));pose.scale((float)line.scale(),(float)-line.scale(),(float)line.scale());mc.font.drawInBatch(line.text(),-line.width()/2f,-4.5f,line.color(),false,pose.last().pose(),buffers,Font.DisplayMode.NORMAL,0,light);pose.popPose();}}
+      for(var line:b.lines()){V at=view.at(line.x(),line.y(),SmartSigns.TEXT);immediate.pushPose();immediate.translate(at.x()-eye.x(),at.y()-eye.y(),at.z()-eye.z());immediate.mulPose(Axis.YP.rotation((float)Math.atan2(-view.right().z(),view.right().x())));immediate.scale((float)line.scale(),(float)-line.scale(),(float)line.scale());mc.font.drawInBatch(line.text(),-line.width()/2f,-4.5f,line.color(),false,immediate.last().pose(),buffers,Font.DisplayMode.NORMAL,0,light);immediate.popPose();}}
     }
     used.forEach(buffers::endBatch);
     if(editor&&mc.player!=null){var look=mc.player.getLookAngle();V ray=new V(look.x,look.y,look.z);Baked best=null;Layout selected=null;Field field=null;double nearest=96;
       for(var b:visible)for(var l:b.views()){double denominator=ray.dot(l.front());if(denominator>=-1e-5)continue;double d=l.origin().add(l.front().mul(SmartSigns.TEXT)).sub(eye).dot(l.front())/denominator;if(d<0||d>nearest)continue;V hit=eye.add(ray.mul(d)).sub(l.origin());double x=hit.dot(l.right()),y=hit.y();for(var f:l.fields())if(f.editable()&&Math.abs(x-f.x())<=f.width()/2&&Math.abs(y-f.y())<=f.height()/2){best=b;selected=l;field=f;nearest=d;}}
-      if(best!=null){var f=field;var l=selected;var consumer=buffers.getBuffer(RenderType.lines());pose.pushPose();pose.translate(-eye.x(),-eye.y(),-eye.z());V[] corners={l.at(f.x()-f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()-f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005)};for(int i=0;i<4;i++){V a=corners[i],b=corners[(i+1)%4],n=b.sub(a).mul(1/a.distance(b));for(V v:List.of(a,b))consumer.addVertex(pose.last().pose(),(float)v.x(),(float)v.y(),(float)v.z()).setColor(255,219,85,255).setNormal(pose.last(),(float)n.x(),(float)n.y(),(float)n.z());}pose.popPose();buffers.endBatch(RenderType.lines());}
+      if(best!=null){var f=field;var l=selected;var consumer=buffers.getBuffer(RenderType.lines());immediate.pushPose();immediate.translate(-eye.x(),-eye.y(),-eye.z());V[] corners={l.at(f.x()-f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()-f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()+f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005),l.at(f.x()-f.width()/2,f.y()+f.height()/2,SmartSigns.TEXT+.005)};for(int i=0;i<4;i++){V a=corners[i],b=corners[(i+1)%4],n=b.sub(a).mul(1/a.distance(b));for(V v:List.of(a,b))consumer.addVertex(immediate.last().pose(),(float)v.x(),(float)v.y(),(float)v.z()).setColor(255,219,85,255).setNormal(immediate.last(),(float)n.x(),(float)n.y(),(float)n.z());}immediate.popPose();buffers.endBatch(RenderType.lines());}
     }
     double elapsed=(System.nanoTime()-frameStart)/1e6;frameCpuMs=frameCpuMs==0?elapsed:frameCpuMs*.9+elapsed*.1;
   }
