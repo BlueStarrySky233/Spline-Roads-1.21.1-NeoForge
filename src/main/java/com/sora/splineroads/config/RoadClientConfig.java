@@ -17,8 +17,9 @@ public final class RoadClientConfig {
     var b=new ModConfigSpec.Builder();b.push("rendering");
     SHOW_SIGNS=b.comment("Show road signs by default. /sr signs off skips sign baking and drawing without changing saved signs; /sr signs on restores display.").define("showSigns",true);
     PERF_OVERLAY=b.comment("Show SR performance overlay; toggle with /sr perf.").define("perfOverlay",false);
-    PREVIEW_DEPTH_TEST=b.comment("Depth-test the road build preview. On (default) the preview is occluded by terrain",
-        "like real geometry; off draws it through terrain, which stops the outline from crawling while moving.",
+    PREVIEW_DEPTH_TEST=b.comment("Depth-test the road build preview. On (default) the preview is occluded by",
+        "terrain; a constant depth bias (polygon offset) keeps the near-coplanar outline stable while moving.",
+        "Off draws the preview through terrain with no depth comparison at all.",
         "Toggle with /sr previewdepth on|off.")
         .define("previewDepthTest",true);
     SURFACE_BACKEND=b.comment("AUTO: terrain ONLY while an Iris/Oculus shader pack is actually rendering; otherwise VBO.",

@@ -14,6 +14,7 @@ public final class NodeEntity extends BlockEntity {
   public double yaw, grade, offsetX, offsetY, offsetZ;
   public boolean headingLocked, gradeLocked, heightExplicit, plannerHeading;
   public UUID owner;
+  public UUID junctionSource;
 
   public NodeEntity(BlockPos pos, BlockState state) {
     super(SplineRoads.NODE_ENTITY.get(), pos, state);
@@ -57,6 +58,7 @@ public final class NodeEntity extends BlockEntity {
     t.putBoolean("HeadingLocked", headingLocked);
     t.putBoolean("GradeLocked", gradeLocked);
     if (owner != null) t.putUUID("Owner", owner);
+    if(junctionSource!=null)t.putUUID("JunctionSource",junctionSource);
   }
 
   @Override
@@ -71,6 +73,7 @@ public final class NodeEntity extends BlockEntity {
       grade = n.grade();
     }
     if (t.hasUUID("Owner")) owner = t.getUUID("Owner");
+    junctionSource=t.hasUUID("JunctionSource")?t.getUUID("JunctionSource"):null;
     heightExplicit =
         t.contains("HeightExplicit")
             ? t.getBoolean("HeightExplicit")

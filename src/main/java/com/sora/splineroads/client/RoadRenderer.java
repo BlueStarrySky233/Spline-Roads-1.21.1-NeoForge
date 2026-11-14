@@ -108,13 +108,13 @@ public final class RoadRenderer {
   private static final java.util.Set<RoadSurface.Texture> missingMaterials = java.util.EnumSet.noneOf(RoadSurface.Texture.class);
   /** Temporary probe: reports the buckets and textures of faces near a point. */
   /** Strictly increasing lifts: deck above the block tops, furniture above the deck, markings on top. */
-  private static final double PAVEMENT_LIFT=0.004;
-  private static final double DETAIL_LIFT=0.008;
-  private static final double PAINT_LIFT=0.012;
+  private static final double PAVEMENT_LIFT=0.0;
+  private static final double DETAIL_LIFT=0.0;
+  private static final double PAINT_LIFT=0.0;
   /** Stripes kept inside the pavement bucket; must clear the asphalt by a depth-safe margin. */
-  private static final double STRIPE_LIFT=0.020;
+  private static final double STRIPE_LIFT=0.0;
   /** Extra height per furniture texture so two overlapped materials never share a plane. */
-  private static final double TEXTURE_STEP=0.0012;
+  private static final double TEXTURE_STEP=0.0;
   private static long lastVertices;
   private static double averageCpuMs,lastCpuMs;
   private static long lastSurfaceIndices;
@@ -178,7 +178,7 @@ public final class RoadRenderer {
      * triangulation differs, so the per-pixel depth comparison flips along the seam and the
      * shared edge shimmers. A small deterministic offset per road makes one of them win.
      */
-    static double roadBias(java.util.UUID id) { return (Math.abs(id.hashCode()) % 12) * 0.0004; }
+    static double roadBias(java.util.UUID id) { return 0; }
     static Prepared of(Layers layers,double bias) {
       // The deck sits exactly on the integer top face of the blocks below it (probe: pavement at
       // y=-60.000), so the chunk mesh and the road mesh share depth and the shared edge flickers.
@@ -266,11 +266,17 @@ public final class RoadRenderer {
   private static final class Preparation {
     final int version;final List<RoadMeshSurfaces.Window> windows;final Set<RoadMeshSurfaces.Window> surfaces=new HashSet<>(),terrain=new HashSet<>();
     final Map<Section,Prepared> pieces=new HashMap<>();final Set<Section> previous;final RoadIndex.Built source;RoadMeshSurfaces.Structures structures;RoadMeshSurfaces.Context context;
+    final boolean finishPrevious;
     final Map<RoadMeshSurfaces.Window,Map<Section,Prepared>> windowPieces=new LinkedHashMap<>();
     final RoadTerrainSourceWindows<RoadMeshSurfaces.Window> terrainIndex=new RoadTerrainSourceWindows<>();
     Preparation(UUID id,int version,RoadIndex.Built road){this.version=version;source=road;windows=RoadMeshSurfaces.windows(road);previous=Set.copyOf(roadSections.getOrDefault(id,Set.of()));
       var old=preparations.get(id);if(old!=null&&old.source==road){windowPieces.putAll(old.windowPieces);pieces.putAll(old.pieces);structures=old.structures;}
+      // Old regions without an inherited contribution can only be retired after
+      // this replacement's complete window union is known. Carry that obligation
+      // across another invalidation until the existing full-union cleanup runs.
+      finishPrevious=!pieces.keySet().containsAll(previous)||old!=null&&old.finishingPrevious();
     }
+    boolean finishingPrevious(){return finishPrevious&&surfaces.size()<windows.size();}
     Map<Section,Prepared> replace(RoadMeshSurfaces.Window window,Map<Section,Prepared> result){
       var old=windowPieces.put(window,result);Set<Section> affected=new HashSet<>(result.keySet());if(old!=null)affected.addAll(old.keySet());
       var changed=new LinkedHashMap<Section,Prepared>();for(var key:affected){Prepared combined=null;for(var part:windowPieces.values()){var contribution=part.get(key);if(contribution!=null)combined=combined==null?contribution:append(combined,contribution);}if(combined==null)pieces.remove(key);else{pieces.put(key,combined);changed.put(key,combined);}}return changed;
@@ -282,7 +288,7 @@ public final class RoadRenderer {
       if(surfaces.size()==windows.size()&&(!exact||terrain.size()==windows.size())){completedWindowSkips++;return null;}
       windowVisits+=windows.size();
       RoadMeshSurfaces.Window best=null;double nearest=Double.POSITIVE_INFINITY;
-      for(var window:windows)if((!surfaces.contains(window)||exact&&!terrain.contains(window))&&(atomicUpdates.containsKey(source.record.id())||RoadVisibility.within(window.min().x(),window.min().z(),window.max().x(),window.max().z(),cameraPosition.x(),cameraPosition.z(),Minecraft.getInstance().options.getEffectiveRenderDistance()+2))){
+      for(var window:windows)if((!surfaces.contains(window)||exact&&!terrain.contains(window))&&(atomicUpdates.containsKey(source.record.id())||finishingPrevious()||RoadVisibility.within(window.min().x(),window.min().z(),window.max().x(),window.max().z(),cameraPosition.x(),cameraPosition.z(),Minecraft.getInstance().options.getEffectiveRenderDistance()+2))){
         double distance=window.distance(cameraPosition);if(distance<nearest){nearest=distance;best=window;}
       }return best;
     }
@@ -647,7 +653,8 @@ public final class RoadRenderer {
   static void resume(UUID id){RoadTerrainModels.resume(id);enqueue(id);}
   private static void enqueue(UUID id){dirty.add(id);if(buildVisible(id))priorityDirty.add(id);}
   private static boolean buildVisible(UUID id){
-    if(atomicUpdates.containsKey(id))return ClientRoads.INDEX.roads.containsKey(id);
+    var preparation=preparations.get(id);
+    if(atomicUpdates.containsKey(id)||preparation!=null&&preparation.finishingPrevious())return ClientRoads.INDEX.roads.containsKey(id);
     if(!ClientRoads.active(id))return false;var road=ClientRoads.INDEX.roads.get(id);if(road==null)return false;
     return RoadVisibility.within(road.mesh.min().x(),road.mesh.min().z(),road.mesh.max().x(),road.mesh.max().z(),cameraPosition.x(),cameraPosition.z(),Minecraft.getInstance().options.getEffectiveRenderDistance()+2);
   }
@@ -837,6 +844,9 @@ public final class RoadRenderer {
     cameraPosition = new V(camera.x, camera.y, camera.z);
     pose.pushPose();
     if (mc.level != null) {
+      // Signal heads are immediate-mode geometry: the render type's shader already applies the
+      // camera rotation, so they must not receive the rotated world pose as well.
+      var immediate = new PoseStack();
       signalTypesUsed.clear();
       for (var road : ClientRoads.INDEX.signalsNear((int)Math.floor(camera.x) >> 4, (int)Math.floor(camera.z) >> 4)) {
         if(!ClientRoads.active(road.record.id()))continue;
@@ -847,7 +857,7 @@ public final class RoadRenderer {
           cached = new SignalCache(faces, new RoadSignalBatch(faces));
           signalBatches.put(road.record.id(), cached);
         }
-        cached.batch().emit(pose, buffers, cameraPosition, RoadRenderer::signalMaterial, signalTypesUsed);
+        cached.batch().emit(immediate, buffers, cameraPosition, RoadRenderer::signalMaterial, signalTypesUsed);
       }
       for (var type : signalTypesUsed) buffers.endBatch(type);
     }
@@ -886,7 +896,7 @@ public final class RoadRenderer {
     boolean furnitureChanged=furniture&&(furniturePreview!=ClientRoads.preview
         ||furnitureRevision!=ClientRoads.INDEX.revision()||furnitureContextRevision!=previewContextRevision
         ||(furnitureGround==null||!furnitureGround.current(Minecraft.getInstance().level)));
-    if (ghostMesh != ClientRoads.preview || ghostRoads != ClientRoads.nodePreviews
+    if (ghostBuffer == null || ghostMesh != ClientRoads.preview || ghostRoads != ClientRoads.nodePreviews
         || ghostFaces != JunctionScreen.previewFaces || ghostDelete != deleting || ghostJunction != junction
         || ghostConflict != ClientRoads.conflictPreview || furnitureChanged) {
       clearPreviewBuffer();
@@ -903,9 +913,11 @@ public final class RoadRenderer {
       if(ghostData!=null){buffer.bind(); buffer.upload(ghostData); ghostBuffer = buffer;}
       } catch (RuntimeException e) { buffer.close(); throw e; }
       finally { VertexBuffer.unbind(); }
-      ghostMesh = ClientRoads.preview; ghostRoads = ClientRoads.nodePreviews;
+      // Only remember the inputs when a buffer exists: recording them after an empty build would
+      // stop the rebuild condition from ever firing again and hide the preview permanently.
+      if(ghostBuffer!=null){ghostMesh = ClientRoads.preview; ghostRoads = ClientRoads.nodePreviews;
       ghostFaces = JunctionScreen.previewFaces; ghostDelete = deleting; ghostJunction = junction;
-      ghostConflict=ClientRoads.conflictPreview;
+      ghostConflict=ClientRoads.conflictPreview;}
     }
     var type=ClientRoads.conflictPreview?CONFLICT:GHOST;
     type.setupRenderState();
@@ -922,17 +934,14 @@ public final class RoadRenderer {
       if(shader.FOG_END!=null){shader.FOG_END.set(1_000_001f);shader.FOG_END.upload();}
     }
     if (shader.MODEL_VIEW_MATRIX != null) { shader.MODEL_VIEW_MATRIX.set(transform); shader.MODEL_VIEW_MATRIX.upload(); }
-    // Planning overlay: depth testing is a preference. Keeping it on is the default, so the
-    // preview is occluded by terrain like real geometry. The crawling edge came from drawing
-    // the preview coplanar with the ground, where the depth comparison flips per pixel as the
-    // camera moves; a polygon offset (same constants vanilla uses for decals) biases it toward
-    // the camera without moving the geometry or changing what actually occludes it.
+    // Planning overlay. This keeps the upstream 1.20.1 behaviour (depth tested, so terrain occludes
+    // the preview); the faint flicker along the outline exists upstream too, because a near-coplanar
+    // translucent overlay repeats the depth comparison per pixel. /sr previewdepth off drops the
+    // comparison entirely for players who prefer a stable outline over occlusion.
     boolean depthTest = com.sora.splineroads.config.RoadClientConfig.PREVIEW_DEPTH_TEST.get();
     if (!depthTest) RenderSystem.disableDepthTest();
-    else { RenderSystem.enablePolygonOffset(); RenderSystem.polygonOffset(-1.0f, -10.0f); }
     ghostBuffer.draw(); lastDraws++;
     if (!depthTest) RenderSystem.enableDepthTest();
-    else { RenderSystem.polygonOffset(0.0f, 0.0f); RenderSystem.disablePolygonOffset(); }
     shader.clear(); VertexBuffer.unbind(); type.clearRenderState();
   }
   private static void emitPreview(PoseStack pose, VertexConsumer c) {
@@ -940,7 +949,7 @@ public final class RoadRenderer {
       boolean conflict=ClientRoads.conflictPreview;
       // Kept clearly above the surface: with depth testing on, a coplanar overlay is simply
       // hidden, which looked like the preview had disappeared.
-      double lift=conflict?.06:.06;
+      double lift=conflict?.06:-.025;
       int walkColor=conflict?0xFF5D45:0x9DE69A;
       var previews =
           ClientRoads.nodePreviews.isEmpty()
@@ -1432,7 +1441,7 @@ public final class RoadRenderer {
     if(candidate!=null)edited=candidate.id();
     var fixed=candidate==null||candidate.fragment()==null?null:candidate.fragment().supports();
     var reference=candidate==null?null:candidate.terrainClassificationMesh();
-    var ground = RoadPreviewGround.create(level,mesh,edited,ClientRoads.INDEX.roads.values(),retained,fixed,reference);
+    var ground = RoadPreviewGround.create(level,mesh,edited,ClientRoads.INDEX.roads.values(),retained,fixed,reference,candidate);
     try {
       var phase = com.sora.splineroads.core.RoadFurniture.Phase.DEFAULT;
       var draft = ClientRoads.draft;

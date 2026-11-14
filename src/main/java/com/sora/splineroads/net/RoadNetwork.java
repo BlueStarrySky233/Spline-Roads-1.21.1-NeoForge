@@ -24,7 +24,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import com.sora.splineroads.world.ItemTag;
 
 public final class RoadNetwork {
-  private static final String PROTOCOL = "1";
+  private static final String PROTOCOL = "2";
 
   public record ServerMessage(RoadWire.Fragment fragment) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ServerMessage> TYPE =

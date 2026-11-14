@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'com.sora.splineroads'
-version = '1.21.1-2.0-2'
+version = '1.21.1-2.1.0-1'
 base { archivesName = 'splineroads' }
 
 // Target Java 21 bytecode without requiring a locally provisioned JDK 21 toolchain.
@@ -46,7 +46,12 @@ repositories {
 dependencies {
     // Optional MTR adapter: only compiled when mtr_version is supplied (-Pmtr_version=<version id>).
     // Never bundled or linked when absent.
-    if (project.hasProperty('mtr_version') && project.property('mtr_version')) {
+    // The optional MTR adapter compiles against the jar the developer actually runs with.
+    // Nothing from it is bundled: every MTR type is reached only behind the version gate.
+    def mtrJars = fileTree(dir: 'run/mods', include: ['*MTR-neoforge-*.jar'])
+    if (!mtrJars.isEmpty()) {
+        compileOnly mtrJars
+    } else if (project.hasProperty('mtr_version') && project.property('mtr_version')) {
         compileOnly "maven.modrinth:minecraft-transit-railway:${project.property('mtr_version')}"
     }
 }

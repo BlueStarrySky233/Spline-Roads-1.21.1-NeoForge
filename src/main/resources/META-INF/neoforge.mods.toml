@@ -4,7 +4,7 @@ license="Spline Roads Non-Commercial License (META-INF/LICENSE.txt); third-party
 
 [[mods]]
 modId="splineroads"
-version="1.21.1-2.0-2"
+version="1.21.1-2.1.0-1"
 displayName="Spline Roads (Unofficial 1.21.1 Port)"
 authors="ShiraAya (original Spline Roads), BlueStarrySky (1.21.1 NeoForge port)"
 credits="1.21.1 NeoForge port by BlueStarrySky, implemented with AI assistance and human review/testing. Original Spline Roads and its content are copyright ShiraAya and used under the Spline Roads Non-Commercial License."
