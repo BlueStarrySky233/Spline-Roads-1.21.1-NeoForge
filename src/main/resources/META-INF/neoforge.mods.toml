@@ -26,3 +26,16 @@ type="required"
 versionRange="[1.21.1,1.21.2)"
 ordering="NONE"
 side="BOTH"
+
+# Optional railway integration; the adapter stays inert and says so when MTR is absent.
+[[dependencies.splineroads]]
+modId="mtr"
+type="optional"
+# Maven ordering puts 4.1.0-beta.N before 4.1.0, so the range starts at the beta.
+versionRange="[4.1.0-beta.1,4.2.0)"
+ordering="AFTER"
+side="BOTH"
+
+# The MTR hooks are Mixins because NeoForge has no coremod runtime.
+[[mixins]]
+config="splineroads.mixins.json"

@@ -18,7 +18,9 @@ public final class RailbedHighlight {
     if(event.getStage()!=RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES)return;var mc=Minecraft.getInstance();if(mc.player==null)return;
     if(!(mc.player.getMainHandItem().getItem() instanceof RailbedTool||mc.player.getOffhandItem().getItem() instanceof RailbedTool))return;
     var paths=new LinkedHashMap<String,RailbedPath.Path>();RailbedScreen.candidates.forEach(p->paths.put(RailbedCandidates.key(p),p));var selected=new HashSet<String>();RailbedScreen.highlighted.forEach(p->{paths.put(RailbedCandidates.key(p),p);selected.add(RailbedCandidates.key(p));});
-    var camera=event.getCamera().getPosition();var pose=WorldRenderPose.of(event);pose.pushPose();pose.translate(-camera.x,-camera.y,-camera.z);var buffers=mc.renderBuffers().bufferSource();var line=buffers.getBuffer(RenderType.lines());
+    // Same recipe as upstream: camera-relative vertices in this stage.
+    // applied both transforms twice, which sent the highlight across the screen.
+    var camera=event.getCamera().getPosition();var pose=event.getPoseStack();pose.pushPose();pose.translate(-camera.x,-camera.y,-camera.z);var buffers=mc.renderBuffers().bufferSource();var line=buffers.getBuffer(RenderType.lines());
     for(var entry:paths.entrySet()){boolean active=selected.contains(entry.getKey());var points=entry.getValue().positions();for(int i=1;i<points.size();i++){var a=points.get(i-1);var b=points.get(i);if(camera.distanceToSqr(a.x(),a.y(),a.z())>128*128&&camera.distanceToSqr(b.x(),b.y(),b.z())>128*128)continue;var n=b.sub(a).horizontalUnit();
       for(var p:List.of(a,b))line.addVertex(pose.last().pose(),(float)p.x(),(float)p.y()+.2f,(float)p.z()).setColor(active?.15f:1f,active?1f:.7f,active?.3f:.15f,1f).setNormal(pose.last(),(float)n.x(),0,(float)n.z());
     }}pose.popPose();buffers.endBatch(RenderType.lines());

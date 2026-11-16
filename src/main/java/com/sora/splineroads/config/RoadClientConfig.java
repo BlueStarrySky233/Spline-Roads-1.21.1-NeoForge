@@ -13,6 +13,7 @@ public final class RoadClientConfig {
   public static final ModConfigSpec.IntValue TERRAIN_SECTIONS_PER_FRAME;
   public static final ModConfigSpec.IntValue VBO_UPLOAD_MICROS;
   public static final ModConfigSpec.IntValue INACTIVE_VBO_CACHE_MIB,UNLOADED_VBO_CACHE_MIB,TERRAIN_CACHE_MIB,COLD_ROAD_CACHE_MIB;
+  public static final ModConfigSpec.ConfigValue<String> LOD_INFILL_BLOCK;
   static {
     var b=new ModConfigSpec.Builder();b.push("rendering");
     SHOW_SIGNS=b.comment("Show road signs by default. /sr signs off skips sign baking and drawing without changing saved signs; /sr signs on restores display.").define("showSigns",true);
@@ -38,6 +39,13 @@ public final class RoadClientConfig {
         .defineInRange("unloadedVboCacheMiB",64,0,512);
     TERRAIN_CACHE_MIB=b.comment("Estimated MiB budget for unloaded/inactive terrain tiles (256 bytes/quad). 0 disables retention.").defineInRange("terrainCacheMiB",64,0,512);
     COLD_ROAD_CACHE_MIB=b.comment("Estimated MiB retained for roads outside loaded chunks, including CPU geometry and both VBO encodings. Real delete/edit invalidates immediately.").defineInRange("coldRoadCacheMiB",128,0,512);
+    LOD_INFILL_BLOCK=b.comment("Block state used when a road cell is baked without its block entity data, which is",
+        "what distant-LOD renderers such as Voxy do: they sample block states and call getQuads with",
+        "ModelData.EMPTY. Without this the far terrain shows holes where roads are. Empty disables it.",
+        "The LOD surface is one flat material at block granularity: a cell that also holds road",
+        "structures is sampled as a plain block, because block states cannot separate the two.",
+        "splineroads:road_slab gives a thinner, less obtrusive far surface than road_block.")
+        .define("lodInfillBlock","splineroads:road_block");
 
     b.pop();b.push("tools");SPLIT_CONNECTION=b.defineEnum("splitConnection",com.sora.splineroads.core.RoadSlicing.Connection.CONTINUOUS);STREET_STYLE=b.defineEnum("streetStyle",com.sora.splineroads.core.StreetPlan.Style.DOWNTOWN);b.pop();SPEC=b.build();
   }

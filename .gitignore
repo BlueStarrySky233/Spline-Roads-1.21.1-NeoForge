@@ -12,3 +12,5 @@ delivery/
 
 # Local checkout of the upstream 1.20.1 repository, used only to pull updates.
 Spline-Roads-Original/
+MTR/
+voxy/

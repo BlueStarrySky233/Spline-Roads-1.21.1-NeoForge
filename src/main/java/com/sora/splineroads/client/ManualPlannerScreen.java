@@ -278,8 +278,13 @@ private double pressX,pressY,pressCenterX,pressCenterZ,pressAt;private V movingA
     @Override public void onClose(){minecraft.setScreen(ManualPlannerScreen.this);ClientRoads.beginEditor(ManualPlannerScreen.this);}
     @Override public boolean isPauseScreen(){return false;}
     @Override public void renderBackground(GuiGraphics g,int mx,int my,float dt){}
-  @Override public void render(GuiGraphics g,int x,int y,float dt){renderTransparentBackground(g);g.drawCenteredString(font,title,width/2,height/2-85,0xffffffff);g.drawCenteredString(font,"地表分批加载并保留到关闭；操作范围为半径2048格",width/2,height/2+13,0xffbfd0e0);super.render(g,x,y,dt);}
-    final class SettingSlider extends AbstractSliderButton {private final int field;private final int min,max;SettingSlider(int x,int y,int field,int current,int min,int max){super(x,y,280,22,Component.empty(),(current-min)/(double)(max-min));this.field=field;this.min=min;this.max=max;updateMessage();}protected void updateMessage(){setMessage(Component.literal(switch(field){case 1->"撤销最大步："+steps;case 2->"地表缓存秒："+cacheSeconds;default->"地表加载半径："+radius+" 格";}));}protected void applyValue(){int n=min+(int)Math.round(value*(max-min));switch(field){case 1->steps=n;case 2->cacheSeconds=n;default->radius=n;}updateMessage();}}
+  @Override public void render(GuiGraphics g,int x,int y,float dt){renderTransparentBackground(g);g.drawCenteredString(font,title,width/2,height/2-102,0xffffffff);super.render(g,x,y,dt);
+    // Hover hint per slider, as upstream: the three settings need an explanation on screen.
+    for(var child:children())if(child instanceof SettingSlider slider&&slider.isMouseOver(x,y)){g.renderTooltip(font,font.split(Component.literal(slider.hint()),Math.max(1,Math.min(300,width-16))),(sw,sh,mx,my,tw,th)->new org.joml.Vector2i(Math.max(4,Math.min(mx+12,sw-tw-4)),Math.max(4,Math.min(my+12,sh-th-6))),x,y);break;}}
+    final class SettingSlider extends AbstractSliderButton {private final int field;private final int min,max;SettingSlider(int x,int y,int field,int current,int min,int max){super(x,y,280,22,Component.empty(),(current-min)/(double)(max-min));this.field=field;this.min=min;this.max=max;updateMessage();}
+      String hint(){return switch(field){case 0->"以打开地图的位置为中心加载地表；离开此范围会释放缓存";case 1->"最多保留的规划撤销步骤数";default->"关闭后按时释放；离开打开位置超过加载半径即释放";};}
+      protected void updateMessage(){setMessage(Component.literal(switch(field){case 0->"地表加载半径："+radius+" 格";case 1->"撤销最大步："+steps;default->"关闭后释放地表缓存："+cacheSeconds+" 秒";}));}
+      protected void applyValue(){int n=min+(int)Math.round(value*(max-min));switch(field){case 1->steps=n;case 2->cacheSeconds=n;default->radius=n;}updateMessage();}}
   }
   final class PointDetails extends Screen {
     private final Point point;private final EditBox[] xyz=new EditBox[3];private String message="坐标修改与原有道路校验同时执行";
