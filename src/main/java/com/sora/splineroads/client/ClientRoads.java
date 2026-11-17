@@ -173,6 +173,7 @@ public final class ClientRoads {
           () -> {
             RoadBlocks.clientIndex = l -> INDEX;
             RoadTool.openClient = ClientRoads::open;RoadSplitTool.activateClient=RoadSplitterClient::activate;
+            RoadVoxyBridge.install();
           });
     }
   }

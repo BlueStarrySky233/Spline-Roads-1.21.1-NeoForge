@@ -208,6 +208,19 @@ public final class RoadRenderer {
   private record MeshResult(Map<Section,Prepared> regions, RoadTerrainSourceWindows.Publication terrain) {}
 
   private static final Map<UUID,Preparation> preparations=new HashMap<>();
+  /**
+   * Distant faces the near renderer already prepared for this road.
+   *
+   * <p>The distant layer draws these instead of recomputing from RoadSurface.build, so markings
+   * are byte-for-byte what the near renderer would show: same clipping, same merges, same lifts.
+   */
+  public static java.util.List<com.sora.splineroads.core.RoadSurface.Face> distantFaces(UUID id) {
+    var preparation = preparations.get(id);
+    if (preparation == null) return java.util.List.of();
+    var out = new java.util.ArrayList<com.sora.splineroads.core.RoadSurface.Face>();
+    for (var prepared : preparation.pieces.values()) out.addAll(prepared.piece().distant());
+    return out;
+  }
   private static final Map<UUID,AtomicUpdate> atomicUpdates=new HashMap<>();
   private static final Map<UUID,AtomicUpdate> displayUpdates=new HashMap<>();
   private static long drawSelectionBuilds,drawSelectionRanges,drawOwnershipQueries;
