@@ -169,8 +169,10 @@ public final class ClientRoads {
   public static final class Setup {
     @SubscribeEvent
     public static void setup(FMLClientSetupEvent e) {
+      System.getLogger("SplineRoads").log(System.Logger.Level.INFO, "[SR] client setup entered");
       e.enqueueWork(
           () -> {
+            System.getLogger("SplineRoads").log(System.Logger.Level.INFO, "[SR] client setup work start");
             RoadBlocks.clientIndex = l -> INDEX;
             RoadTool.openClient = ClientRoads::open;RoadSplitTool.activateClient=RoadSplitterClient::activate;
             RoadVoxyBridge.install();

@@ -26,6 +26,10 @@ public final class SmartSignClient {
   private static final RenderType MATERIAL=RenderType.entitySolid(ResourceLocation.fromNamespaceAndPath("minecraft","textures/block/white_concrete.png"));
   private static final RenderType PLATE_MATERIAL=RenderType.text(ResourceLocation.fromNamespaceAndPath("minecraft","textures/block/white_concrete.png"));
   private static volatile boolean resourcesDirty;
+  /** Read-only view of loaded sign states, used by the distant LOD renderer. */
+  public static java.util.Collection<com.sora.splineroads.core.SmartSigns.State> loadedStates() {
+    return java.util.List.copyOf(states.values());
+  }
   public static void resourceReloaded(){resourcesDirty=true;}
   private static State preview;private static RoadRecord previewRoad;private static Baked previewMesh;
   public static long rebuilds,textLayouts;private static int bytes;private static long stateBytes;

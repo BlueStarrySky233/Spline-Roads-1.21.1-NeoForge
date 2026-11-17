@@ -189,7 +189,19 @@ public final class RoadDistantRenderer {
   private int reported = -1;
   private boolean broken;
   private boolean probed;
+  private int failedReported;
+
+  /** One-line report to chat, so diagnostics never depend on log routing. */
+  private static void say(String text) {
+    System.getLogger("SplineRoads").log(System.Logger.Level.INFO, "[SR] " + text);
+    var player = Minecraft.getInstance().player;
+    if (player != null) {
+      player.displayClientMessage(net.minecraft.network.chat.Component.literal("[SR] " + text), false);
+    }
+  }
   private static int structureParts;
+  private static boolean modelLogged;
+  private static int buildLogged;
   private static int drawnParts;
   /** Visible fixtures per road; beyond this the mesh grows faster than the eye gains. */
   private static final int MAX_STRUCTURE_PARTS = 800;
@@ -199,12 +211,17 @@ public final class RoadDistantRenderer {
   public void render(Object pipeline, Object viewport, int depthFunc) {
     if (!probed) {
       probed = true;
-      System.getLogger("SplineRoads").log(System.Logger.Level.INFO,
-          "[SR] voxy mesh wiring: setup=" + (SETUP != null) + " mvp=" + (MVP != null)
-              + " builder=" + (BUILDER_NEW != null) + " vertex=" + (BUILDER_RAW_VERTEX != null)
-              + " build=" + (BUILDER_BUILD != null) + " shader=" + (SHADER_FOR_COPYCAT != null)
-              + " textures=" + (BIND_TEXTURES != null) + " transform=" + (UPLOAD_TRANSFORM != null)
-              + " draw=" + (MESH_DRAW != null));
+      String wiring = "wiring setup=" + (SETUP != null) + " mvp=" + (MVP != null)
+          + " builder=" + (BUILDER_NEW != null) + " vertex=" + (BUILDER_RAW_VERTEX != null)
+          + " build=" + (BUILDER_BUILD != null) + " shader=" + (SHADER_FOR_COPYCAT != null)
+          + " textures=" + (BIND_TEXTURES != null) + " transform=" + (UPLOAD_TRANSFORM != null)
+          + " draw=" + (MESH_DRAW != null);
+      System.getLogger("SplineRoads").log(System.Logger.Level.INFO, "[SR] voxy mesh " + wiring);
+      var viewer = Minecraft.getInstance().player;
+      if (viewer != null) {
+        viewer.displayClientMessage(
+            net.minecraft.network.chat.Component.literal("[SR] voxy mesh " + wiring), false);
+      }
     }
     if (broken || SETUP == null || MVP == null || BUILDER_NEW == null
         || BUILDER_RAW_VERTEX == null || BUILDER_BUILD == null || SHADER_FOR_COPYCAT == null
@@ -267,9 +284,11 @@ public final class RoadDistantRenderer {
       return;
     }
     var eye = new com.sora.splineroads.core.RoadGeometry.V(cameraX, cameraY, cameraZ);
-    double near = Math.max(64.0,
-        Minecraft.getInstance().options.getEffectiveRenderDistance() * 16.0) + 32.0;
-    try (var budget = com.sora.splineroads.core.RoadPlanningBudget.open("SR distant LOD", 0.008)) {
+    // Start slightly inside the vanilla render distance. The near renderer stops at
+    // renderDistance*16, so a positive margin left a band that neither side drew.
+    double near = Math.max(48.0,
+        Minecraft.getInstance().options.getEffectiveRenderDistance() * 16.0 - 16.0);
+    try (var budget = com.sora.splineroads.core.RoadPlanningBudget.open("SR distant LOD", 0.25)) {
       for (var built : ClientRoads.INDEX.roads.values()) {
         var id = built.record.id();
         if (batches.containsKey(id) || skipped.contains(id)) continue;
@@ -279,14 +298,19 @@ public final class RoadDistantRenderer {
         for (var sample : samples) {
           if (sample.center().sub(eye).horizontalLength() >= near) { anyFar = true; break; }
         }
-        if (!anyFar) { skipped.add(id); continue; }
+        if (!anyFar) continue;   // not skipped: distance changes as the player moves
         try {
           var geometry = com.sora.splineroads.core.RoadSurface.build(built.mesh, List.of(), List.of());
           Object mesh = build(built, geometry, eye, near);
           if (mesh != null) batches.put(id, new Batch(mesh)); else skipped.add(id);
         } catch (com.sora.splineroads.core.RoadPlanningBudget.Expired more) {
-          throw more;
+          break;   // out of budget this frame; the rest is picked up next frame
         } catch (Throwable failure) {
+          // Silent skips made every earlier diagnosis guesswork: report the first few instead.
+          if (failedReported < 3) {
+            failedReported++;
+            say("build failed: " + failure);
+          }
           skipped.add(id);
         }
       }
@@ -318,7 +342,12 @@ public final class RoadDistantRenderer {
       yOffset = deckSamples.get(deckSamples.size() / 2).center().y()
           - marks.get(0).points().get(0).y();
     }
-    for (var face : marks) appendFace(builder, face, whiteSprite(), yOffset);
+    // geometry.markings() also carries the green strip faces (everything that is not plain
+    // pavement is grouped there), so painted lines and vegetation need different textures.
+    for (var face : marks) {
+      boolean green = isGreen(face.color());
+      appendFace(builder, face, green ? vegetation() : whiteSprite(), yOffset, true);
+    }
     // Structures (gantries, lamps, railings, piers) are empty block models, so Voxy cannot bake
     // them; their parts are drawn here as boxes in the same quad layout.
     try {
@@ -337,41 +366,9 @@ public final class RoadDistantRenderer {
         }
         nearby.add(other);
       }
-      // The same Ground the near renderer builds at RoadRenderer:1466, so every judgement
-      // (blocked, joined, furnitureClear, railPost) comes from one implementation. Only top() is
-      // guarded: it answers NaN in unloaded chunks and Part rejects a non-finite support height,
-      // which made plan() return nothing and erased all fixtures.
-      var level = Minecraft.getInstance().level;
-      if (level == null) return null;
-      var delegate = new RoadPreviewGround(level, built.mesh, nearby);
-      com.sora.splineroads.core.RoadStructures.Ground ground =
-          new com.sora.splineroads.core.RoadStructures.Ground() {
-            @Override public double top(double x, double z, double deckY) {
-              double top = delegate.top(x, z, deckY);
-              if (!Double.isFinite(top) || top > deckY - 0.5) return deckY - 6.0;
-              return top;
-            }
-            @Override public boolean joined(com.sora.splineroads.core.RoadGeometry.V point) {
-              return delegate.joined(point);
-            }
-            @Override public boolean furnitureClear(com.sora.splineroads.core.RoadGeometry.V point) {
-              return delegate.furnitureClear(point);
-            }
-            @Override public boolean blocked(com.sora.splineroads.core.RoadStructures.Part part) {
-              return delegate.blocked(part);
-            }
-            @Override public boolean lampBlocked(com.sora.splineroads.core.RoadStructures.Part part,
-                com.sora.splineroads.core.RoadGeometry.Sample mount) {
-              return delegate.lampBlocked(part, mount);
-            }
-            @Override public boolean railPost(com.sora.splineroads.core.RoadGeometry.V position,
-                boolean highway, boolean raised) {
-              return delegate.railPost(position, highway, raised);
-            }
-          };
       // Structures are planned on the server and stored on the record; the near renderer draws
       // that saved list (StructurePlanner:489 reads record.structures()). Re-running plan() here
-      // produced a different set — including railings on roads that have none.
+      // produced a different set 閳?including railings on roads that have none.
       var parts = built.record.structures();
       if (parts.isEmpty()) {
         com.sora.splineroads.core.RoadStructures.Ground fallback =
@@ -382,7 +379,26 @@ public final class RoadDistantRenderer {
             };
         parts = com.sora.splineroads.core.RoadStructures.plan(built.mesh, fallback,
             com.sora.splineroads.world.FurnitureSpacing.onMesh(built.record, built.mesh));
-      }      structureParts += parts.size();
+      }
+      // Road signs live outside the structure list: SmartSignClient bakes them from its own state
+      // cache. Their boards and poles are drawn here; the lettering/arrow artwork comes from a text
+      // render type and cannot pass through Voxy's single-atlas shader.
+      try {
+        // Signs take over earlier than the road surface: a gantry centred just inside the boundary
+        // would otherwise be drawn by neither side, leaving a bare post at the hand-off.
+        double signNear = Math.max(32.0, near - 48.0);
+        for (var state : SmartSignClient.loadedStates()) {
+          if (!state.key().road().equals(ownId)) continue;
+          var layout = com.sora.splineroads.core.SmartSigns.layout(built.mesh, state);
+          for (var view : com.sora.splineroads.core.SmartSigns.views(layout, state.mode())) {
+            for (var face : com.sora.splineroads.core.SmartSignFaces.compose(view)) {
+              if (far(face, eye, signNear * signNear)) appendFace(builder, face, whiteSprite(), 0, true);
+            }
+          }
+        }
+      } catch (Throwable ignored) {
+      }
+      structureParts += parts.size();
       // plan() returns dense trim as well as gantries and lamps; cap the count so the mesh stays
       // uploadable, keeping the parts closest to the eye first.
       int budget = MAX_STRUCTURE_PARTS;
@@ -393,7 +409,12 @@ public final class RoadDistantRenderer {
         budget--;
         drawnParts++;
       }
-    } catch (Throwable ignored) {
+    } catch (Throwable failure) {
+      // Was silent: a throw here dropped every fixture for the road with no trace anywhere.
+      if (buildLogged < 6) {
+        buildLogged++;
+        say("structure failed: " + failure);
+      }
     }
     if ((boolean) BUILDER_EMPTY.invoke(builder)) return null;
     return BUILDER_BUILD.invoke(builder);
@@ -424,7 +445,8 @@ public final class RoadDistantRenderer {
   }
 
   private static void appendFace(Object builder,
-      com.sora.splineroads.core.RoadSurface.Face face, TextureAtlasSprite sprite, double yOffset) throws Throwable {
+      com.sora.splineroads.core.RoadSurface.Face face, TextureAtlasSprite sprite, double yOffset,
+      boolean useFaceColor) throws Throwable {
     var points = face.points();
     int argb = face.color();
     float r = ((argb >> 16) & 0xff) / 255f * 0.95f;
@@ -432,18 +454,23 @@ public final class RoadDistantRenderer {
     float b = (argb & 0xff) / 255f * 0.95f;
     // Fan triangulation, each triangle padded to a quad: the raw marking polygons are clipped and
     // often non-convex, so joining four of their points into one quad self-intersects into stripes.
-    int tint = tint(r, g, b);
+    int tint = useFaceColor ? tint(r, g, b) : 0xffffff;
     var first = points.get(0);
     for (int i = 1; i + 1 < points.size(); i++) {
       var mid = points.get(i);
       var last = points.get(i + 1);
       for (var p : new com.sora.splineroads.core.RoadGeometry.V[] {first, mid, last, last}) {
-        vertex(builder, p.x(), p.y() + yOffset + MARKING_LIFT, p.z(), 0.5, 0.5, 1f, tint, whiteSprite(), false);
+        vertex(builder, p.x(), p.y() + yOffset + MARKING_LIFT, p.z(), p.x() / TEXTURE_TILES, p.z() / TEXTURE_TILES, 1f, tint, whiteSprite(), false);
       }
     }
   }
 
   /** Fixture colour per material, mirroring the table RoadStructures uses for its own faces. */
+  /** Green-dominant face colour, i.e. a planted strip rather than paint. */
+  private static boolean isGreen(int argb) {
+    int r = (argb >> 16) & 0xff, g = (argb >> 8) & 0xff, b = argb & 0xff;
+    return g > 60 && g > r + 20 && g > b + 20;
+  }
   private static int materialColor(com.sora.splineroads.core.RoadStructures.Material material) {
     return switch (material) {
       case DEFAULT -> 0xD2D8D9;
@@ -511,42 +538,60 @@ public final class RoadDistantRenderer {
   /**
    * Draws one structural part.
    *
-   * <p>{@code RoadStructures.Part} is not a tube from {@code a} to {@code b}: {@code a鈫抌} is the
+   * <p>{@code RoadStructures.Part} is not a tube from {@code a} to {@code b}: {@code a闁愁偅濡紏 is the
    * horizontal base line whose length already equals {@code width}, and {@code height} extends
    * upward from it. Reading it as an axis made every post collapse into a short lying box.
    */
+  /**
+   * Draws one structural part from its own face list.
+   *
+   * <p>{@code Part.faces()} already dispatches by model: signals and signs go through
+   * RoadSignalModel, poles through RoadPoleModel, crossing signs, crash cushions and toll models
+   * each have their own generator. Using it means road signs are drawn, which a plain box never
+   * could. A box is kept only as a fallback for parts that produce no faces.
+   */
   private static void appendPart(Object builder,
+      com.sora.splineroads.core.RoadStructures.Part part, TextureAtlasSprite sprite) throws Throwable {
+    java.util.List<com.sora.splineroads.core.RoadSurface.Face> faces = part.faces();
+    if (!faces.isEmpty()) {
+      // Leaf textures are greyscale sheets that vanilla tints by biome, so the part colour must
+      // stay: dropping it turned the green belt pure white.
+      var partSprite = spriteFor(part.material(), sprite);
+      for (var face : faces) appendFace(builder, face, partSprite, 0, true);
+      return;
+    }
+    appendBox(builder, part, sprite);
+  }
+
+  /** Fallback box built from the part's footprint and height. */
+  private static void appendBox(Object builder,
       com.sora.splineroads.core.RoadStructures.Part part, TextureAtlasSprite sprite) throws Throwable {
     var a = part.a();
     var b = part.b();
     double dx = b.x() - a.x(), dz = b.z() - a.z();
     double length = Math.sqrt(dx * dx + dz * dz);
     double halfWidth = part.width() / 2;
-    double nx, nz;
+    double nx = 0, nz = halfWidth;
     if (length > 1e-6) {
       nx = -dz / length * halfWidth;
       nz = dx / length * halfWidth;
-    } else {
-      nx = halfWidth;
-      nz = 0;
     }
     double height = part.height();
     double[] xs = {a.x() - nx, b.x() - nx, b.x() + nx, a.x() + nx};
     double[] ys = {a.y(), b.y(), b.y(), a.y()};
     double[] zs = {a.z() - nz, b.z() - nz, b.z() + nz, a.z() + nz};
     int tint = materialColor(part.material());
-    // Bottom ring 0..3, top ring 4..7.
-    int[][] faces = {
+    int[][] quads = {
         {0, 1, 2, 3}, {4, 5, 6, 7}, {0, 1, 5, 4}, {1, 2, 6, 5}, {2, 3, 7, 6}, {3, 0, 4, 7}};
-    for (int[] face : faces) {
-      for (int corner : face) {
+    for (int[] quad : quads) {
+      for (int corner : quad) {
         boolean top = corner >= 4;
         int i = corner & 3;
-        vertex(builder, xs[i], ys[i] + (top ? height : 0), zs[i], 0.5, 0.5, 1f, tint, sprite, part.luminous());
+        vertex(builder, xs[i], ys[i] + (top ? height : 0), zs[i], 0.5, 0.5, 1f, tint, sprite,
+            part.luminous());
       }
     }
   }
-
   /**
    * One vertex in Voxy's layout. Sky and block light are the inputs its shader feeds into the
    * lightmap sampler, which is where distance brightness comes from.
@@ -571,13 +616,10 @@ public final class RoadDistantRenderer {
   /** Sky and block light in 0..15. Unloaded chunks fall back to full sky, which is what
    * Voxy stores for its own voxels; the day/night curve is applied by the lightmap texture. */
   private static int[] lightAt(double x, double y, double z) {
-    var level = Minecraft.getInstance().level;
-    if (level == null) return new int[] {15, 0};
-    var pos = net.minecraft.core.BlockPos.containing(x, y + 0.1, z);
-    if (!level.hasChunkAt(pos)) return new int[] {15, 0};
-    return new int[] {
-        level.getBrightness(net.minecraft.world.level.LightLayer.SKY, pos),
-        level.getBrightness(net.minecraft.world.level.LightLayer.BLOCK, pos)};
+    // Always full sky light. Chunks at this range are only partly loaded, and a sky value sampled
+    // from a shadowed or half-generated chunk darkened entire roads. Day and night still apply:
+    // the lightmap texture is what turns these coordinates into brightness.
+    return new int[] {15, 0};
   }
 
   private static com.sora.splineroads.core.RoadGeometry.V offset(
@@ -585,6 +627,45 @@ public final class RoadDistantRenderer {
     return sample.center().add(sample.left().mul(side * sample.halfWidth()));
   }
 
+  private static TextureAtlasSprite grassSprite;
+  private static boolean grassLoaded;
+
+  /** Vegetation reads as a flat sheet with the asphalt texture, so it gets its own. */
+  private static TextureAtlasSprite spriteFor(com.sora.splineroads.core.RoadStructures.Material material,
+      TextureAtlasSprite fallback) {
+    return switch (material) {
+      case GREEN, OAK_LEAVES, BIRCH_LEAVES, SPRUCE_LEAVES, CHERRY_LEAVES -> vegetation();
+      case SOIL -> soil();
+      default -> fallback;
+    };
+  }
+
+  /** True for the materials drawn with the leaf texture. */
+  private static boolean isVegetation(com.sora.splineroads.core.RoadStructures.Material material) {
+    return switch (material) {
+      case GREEN, OAK_LEAVES, BIRCH_LEAVES, SPRUCE_LEAVES, CHERRY_LEAVES -> true;
+      default -> false;
+    };
+  }
+
+  private static TextureAtlasSprite vegetation() {
+    if (!grassLoaded) {
+      grassLoaded = true;
+      grassSprite = sprite("minecraft:block/oak_leaves");
+    }
+    return grassSprite != null ? grassSprite : asphaltSprite();
+  }
+
+  private static TextureAtlasSprite soilSprite;
+  private static boolean soilLoaded;
+
+  private static TextureAtlasSprite soil() {
+    if (!soilLoaded) {
+      soilLoaded = true;
+      soilSprite = sprite("minecraft:block/dirt");
+    }
+    return soilSprite != null ? soilSprite : asphaltSprite();
+  }
   private static TextureAtlasSprite asphaltSprite() { return sprite("block/terrain_asphalt"); }
 
   /** Lane paint samples this white sheet, so the tint decides the colour instead of asphalt. */
@@ -599,8 +680,11 @@ public final class RoadDistantRenderer {
   private static TextureAtlasSprite sprite(String path) {
     var atlas = Minecraft.getInstance()
         .getTextureAtlas(net.minecraft.world.inventory.InventoryMenu.BLOCK_ATLAS);
-    return atlas.apply(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
-        com.sora.splineroads.SplineRoads.ID, path));
+    var location = path.indexOf(':') >= 0
+        ? net.minecraft.resources.ResourceLocation.parse(path)
+        : net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
+            com.sora.splineroads.SplineRoads.ID, path);
+    return atlas.apply(location);
   }
 
   private static boolean far(com.sora.splineroads.core.RoadSurface.Face face,

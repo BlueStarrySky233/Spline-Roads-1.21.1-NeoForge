@@ -99,7 +99,9 @@ export JAVA_HOME=/path/to/jdk-21
 
 - **路口接缝闪烁。** 同时开启「绿色非机动车道」与「外侧马路牙子」时，路口附近可能有一条边缘随视角闪动。这是两块共面几何在深度上互有胜负造成的纯视觉问题，不影响数据与碰撞；上游 2.1.0 的人行道接触面几何已移植，若仍有残留将在后续修订处理。
 - **建造预览的轮廓闪烁（上游同样存在）。** 预览是贴地半透明覆盖层，与地表深度几乎相等，逐像素比较会在移动中跳变，轮廓边缘因此有轻微闪动。已在原版 1.20.1 上验证同样出现，属于上游缺陷而非移植引入；若更在意轮廓稳定，可用 `/sr previewdepth off` 让预览不参与深度测试（代价是预览会透过地形显示）。
-- **Voxy 远景由模组自绘，细节仍有限。** 渲染距离外的路面、标线、门架、路灯与护栏经由 Voxy 的公开 LOD 钩子绘制（`/sr voxy on|off`）：路面采样沥青贴图，标线取 `RoadSurface` 的标线面并抬离路面，结构直接复用服务端保存在道路记录里的构件列表。光照来自 Voxy 自己的 shader（`DistantShaders.forCopycatPipeline`），因此昼夜与路灯照明与远处地形一致。仍存在的差距：没有环境光遮蔽；标线因坐标基准不同而存在轻微位置偏移；路牌、信号灯与智能标牌未绘制（它们由独立渲染器生成，不在构件列表内）。关闭该功能后回退为 Voxy 原生方块 LOD，需要 `rendering.lodInfillBlock`（默认 `splineroads:road_block`）提供方块材质，否则道路位置显示缺失纹理；改该材质后须删除存档内的 `voxy` 缓存目录才会重新采样。
+- **Voxy 远景由模组自绘，与近景存在差异。** 渲染距离外的路面、标线、结构与标牌经由 Voxy 的公开 LOD 钩子绘制（`/sr voxy on|off`）：路面从 `mesh.samples()` 铺整幅带状几何并采样沥青贴图；标线取 `RoadSurface` 的标线面，整体平移到路面高度后按世界坐标平铺 UV；结构与近景同源，直接复用服务端保存在道路记录里的 `record.structures()`；标牌通过 `SmartSignClient` 的标牌状态生成牌面。光照由 Voxy 自己的 shader 采样原版 lightmap，昼夜与灯照自动一致。存在以下差异：
+  - **远景标线可能与近景不同** ——标线面与 `mesh.samples()` 的坐标基准并不一致，只能整批平移对齐，因此车道线的位置、起止与箭头轮廓可能与近处不完全吻合；
+  - **绿化带不在远景输出中**，其顶面由 `Material.GREEN` 在规划阶段生成，未存入 `record.structures()`；标牌只绘制牌板与杆件，牌面文字与箭头图形来自文本渲染，无法进入 Voxy 的单贴图管线；此外没有环境光遮蔽。关闭该功能后回退为 Voxy 原生方块 LOD，需要 `rendering.lodInfillBlock`（默认 `splineroads:road_block`）提供方块材质，否则道路位置显示缺失纹理；改该材质后须删除存档内的 `voxy` 缓存目录才会重新采样。
 
 ## 移植修订记录
 
@@ -117,7 +119,7 @@ export JAVA_HOME=/path/to/jdk-21
 - 修复只选一条主路（2 个端点）创建辅路时的 `ArrayIndexOutOfBoundsException`：连续范围的几何中心需要两条主路，节点不足时改为按真实端点校验而非越界计算
 - 修复规划地图「工具 2」不响应端点模式：原来仍按 Alt/Ctrl 快捷键分派，导致路口点创建器无法从地图内触发；现按端点模式（道路端点 / 路口点 / 附属点 / 出入点）分派
 - 恢复规划设置三个滑块的悬停说明（上游 `SettingSlider.hint()`），并修正地表缓存滑块的文案
-- 远景 LOD：经由 Voxy 的公开渲染钩子（`LodPipelineHooks`）与它给外部几何准备的 `DistantMeshBuilder`/`DistantShaders` 绘制，不需要修改 Voxy。路面从 `mesh.samples()` 生成整幅带状几何以避免切片面的 UV 压缩；标线取 `RoadSurface` 标线面并整体平移到路面高度；结构直接复用 `record.structures()`（服务端规划结果），因此与近处完全同源。光照由 Voxy 的 shader 采样原版 lightmap，昼夜与照明自动一致。`/sr voxy on|off` 开关，`/sr voxyshade` 调整路面亮度
+- 远景 LOD：经由 Voxy 的公开渲染钩子（`LodPipelineHooks`）与它给外部几何准备的 `DistantMeshBuilder`/`DistantShaders` 绘制，不需要修改 Voxy。路面从 `mesh.samples()` 生成整幅带状几何以避免切片面的 UV 压缩；标线取 `RoadSurface` 的标线面并整体平移到路面高度；结构与近景同源，直接复用 `record.structures()`；标牌经 `SmartSignClient.loadedStates()` 取状态后由 `SmartSignFaces` 生成牌面。光照由 Voxy 的 shader 采样原版 lightmap，昼夜与照明自动一致，`luminous()` 部件固定满亮。单条道路最多绘制 800 个结构部件，规划预算 0.25 秒，超时顺延到下一帧。`/sr voxy on|off` 开关，`/sr voxyshade` 调整路面亮度。注意远景标线可能与近景不同（坐标基准不同，仅能整批平移对齐），且绿化带不在远景输出中。
 
 **1.21.1-2.0-2**（第 2 个移植修订）
 - 修复标牌立即模式几何被二次旋转，龙门架/支架不再跟随相机
