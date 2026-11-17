@@ -4,16 +4,18 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
- * World-space pose helper for {@link RenderLevelStageEvent} handlers.
+ * World-space pose helper for {@link RenderLevelStageEvent} handlers that submit vertices through
+ * a {@code VertexBuffer} or the font renderer.
  *
- * <p>1.20.1 applied the camera rotation to the pose stack inside {@code LevelRenderer.renderLevel},
- * so the event pose stack already mapped world space into view space. 1.21.1 moved that
- * multiplication out of the level renderer: {@code renderLevel} now receives it as a separate
- * model-view matrix, and the pose stack handed to the event only carries per-object translations.
+ * <p>Those paths hand the pose matrix straight to the shader as {@code ModelViewMat}, so the pose
+ * must carry the camera rotation: 1.21.1 moved that multiplication out of {@code LevelRenderer}, and
+ * the pose stack given to the event only carries per-object translations.
  *
- * <p>Drawing world geometry with the raw event pose stack therefore omits the camera rotation and
- * the geometry ends up in view space, appearing glued to the camera instead of sitting in the world.
- * Callers must apply {@link RenderLevelStageEvent#getModelViewMatrix()} first, which this helper does.
+ * <p><strong>Do not use this for immediate-mode geometry</strong> ({@code MultiBufferSource} and
+ * {@code RenderType.lines}/{@code translucent}): those shaders already apply the camera transform,
+ * so multiplying {@code getModelViewMatrix()} in as well rotates the geometry twice and makes it
+ * follow the camera. Immediate-mode paths keep vertices camera-relative instead: take
+ * {@code event.getPoseStack()}, {@code translate(-camera)}, and emit world coordinates.
  */
 public final class WorldRenderPose {
   public static PoseStack of(RenderLevelStageEvent event) {

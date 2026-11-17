@@ -44,15 +44,16 @@ repositories {
 }
 
 dependencies {
-    // Optional MTR adapter: only compiled when mtr_version is supplied (-Pmtr_version=<version id>).
-    // Never bundled or linked when absent.
-    // The optional MTR adapter compiles against the jar the developer actually runs with.
-    // Nothing from it is bundled: every MTR type is reached only behind the version gate.
+    // The railway adapter compiles against MTR 4.1.x, so a jar is always required; that is the
+    // same constraint the 1.20.1 build has. Nothing from MTR is bundled and every MTR type sits
+    // behind the version gate in MtrRailAccess.
+    // Resolution order: local jar in run/mods (offline friendly) -> mtr_version Modrinth coordinate.
     def mtrJars = fileTree(dir: 'run/mods', include: ['*MTR-neoforge-*.jar'])
+    def mtrCoordinate = project.findProperty('mtr_version') ?: '4.1.0-beta.2+1.21.1'
     if (!mtrJars.isEmpty()) {
         compileOnly mtrJars
-    } else if (project.hasProperty('mtr_version') && project.property('mtr_version')) {
-        compileOnly "maven.modrinth:minecraft-transit-railway:${project.property('mtr_version')}"
+    } else {
+        compileOnly "maven.modrinth:minecraft-transit-railway:${mtrCoordinate}"
     }
 }
 

@@ -10,7 +10,11 @@ import net.minecraft.nbt.*;
 /** Same geometry validator for selected ranges, neighbouring ranges and independent automatic ends. */
 final class ContinuousFit {
   static V center(Node[] nodes,Options options){
+    // A two-node layout is one main road: there is no second axis, so no crossing centre exists.
+    // A corridor over a single main road reaches here legitimately and must get a readable error.
+    if(nodes.length<3)throw new IllegalArgumentException("连续范围需要两条主路");
     Node[] expanded=nodes.length==3?InterchangePlanner.expand(nodes,options):nodes;
+    if(expanded.length<4)throw new IllegalArgumentException("连续范围需要两条主路");
     V a=expanded[0].position(),u=expanded[1].position().sub(a).horizontalUnit(),b=expanded[2].position(),v=expanded[3].position().sub(b).horizontalUnit();double det=u.x()*v.z()-u.z()*v.x();
     if(Math.abs(det)<.3)throw new IllegalArgumentException("主路夹角不足，无法计算连续范围");double distance=((b.x()-a.x())*v.z()-(b.z()-a.z())*v.x())/det;return a.add(u.mul(distance));
   }

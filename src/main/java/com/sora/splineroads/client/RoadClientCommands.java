@@ -30,6 +30,18 @@ public final class RoadClientCommands {
         .then(literal("signs").executes(c->signs(c.getSource(),!RoadSignVisibility.enabled()))
           .then(literal("on").executes(c->signs(c.getSource(),true)))
           .then(literal("off").executes(c->signs(c.getSource(),false))))
+        .then(literal("voxy").executes(c->voxy(c.getSource(),!RoadVoxyBridge.enabled()))
+          .then(literal("on").executes(c->voxy(c.getSource(),true)))
+          .then(literal("off").executes(c->voxy(c.getSource(),false))))
+        .then(literal("voxyshade")
+          .then(argument("value",com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0f,6f))
+            .executes(c->voxyShade(c.getSource(),com.mojang.brigadier.arguments.FloatArgumentType.getFloat(c,"value")))))
+        .then(literal("voxyfloor")
+          .then(argument("value",com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0f,6f))
+            .executes(c->voxyFloor(c.getSource(),com.mojang.brigadier.arguments.FloatArgumentType.getFloat(c,"value")))))
+        .then(literal("voxylight")
+          .then(argument("value",com.mojang.brigadier.arguments.FloatArgumentType.floatArg(0f,6f))
+            .executes(c->voxyLight(c.getSource(),com.mojang.brigadier.arguments.FloatArgumentType.getFloat(c,"value")))))
         .then(literal("sf").executes(c->{
           c.getSource().sendSuccess(()->Component.literal("SR 表面模式："+RoadClientConfig.SURFACE_BACKEND.get()+"；/sr sf auto|VBO|terrain"),false);return 1;
         }).then(argument("mode",StringArgumentType.word())
@@ -52,6 +64,26 @@ public final class RoadClientCommands {
   private static int previewDepth(net.minecraft.commands.CommandSourceStack source,boolean enabled){
     RoadClientConfig.PREVIEW_DEPTH_TEST.set(enabled);
     source.sendSuccess(()->Component.literal("SR 建造预览深度测试已"+(enabled?"开启（会被地形遮挡）":"关闭（透过地形显示）")+"；/sr previewdepth on|off"),false);return 1;
+  }
+  private static int voxy(net.minecraft.commands.CommandSourceStack source,boolean enable){
+    RoadVoxyBridge.setEnabled(enable);
+    source.sendSuccess(()->Component.literal("SR 远景道路几何已"+(enable?"开启":"关闭")
+        +"（钩子状态："+RoadVoxyBridge.state()+"）；/sr voxy on|off"),false);return 1;
+  }
+  private static int voxyShade(net.minecraft.commands.CommandSourceStack source,float value){
+    RoadVoxyBridge.setPavementShade(value);
+    source.sendSuccess(()->Component.literal("SR 远景路面亮度 = "+value
+        +"（0~6，重建远景后生效）；/sr voxyshade <值>"),false);return 1;
+  }
+  private static int voxyFloor(net.minecraft.commands.CommandSourceStack source,float value){
+    RoadVoxyBridge.setLightFloor(value);
+    source.sendSuccess(()->Component.literal("SR 远景底光 = "+value
+        +"（0~6，越小夜里越黑）；/sr voxyfloor <值>"),false);return 1;
+  }
+  private static int voxyLight(net.minecraft.commands.CommandSourceStack source,float value){
+    RoadVoxyBridge.setLightGain(value);
+    source.sendSuccess(()->Component.literal("SR 远景光照响应 = "+value
+        +"（0~6，越大明暗差越强）；/sr voxylight <值>"),false);return 1;
   }
   private static int perf(net.minecraft.commands.CommandSourceStack source,boolean enabled){
     RoadClientConfig.PERF_OVERLAY.set(enabled); // Forge's file config autosaves.

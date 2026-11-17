@@ -12,6 +12,7 @@ import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.*;
 import net.minecraft.core.*;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.inventory.InventoryMenu;
@@ -586,12 +587,30 @@ public final class RoadTerrainModels {
 
   public static BakedModel markerModel(BakedModel model){model=RoadFabricModels.unwrap(model);return model instanceof TerrainModel terrain?terrain.baseModel:model;}
 
+  /** Cached state for {@code lodInfillBlock}; re-resolved only when the configured id changes. */
+  private static String lodInfillKey;
+  private static BlockState lodInfillState;
+  private static BlockState lodInfill(){
+    String key=RoadClientConfig.LOD_INFILL_BLOCK.get();
+    if(!key.equals(lodInfillKey)){
+      lodInfillKey=key;lodInfillState=null;
+      ResourceLocation id=key==null||key.isBlank()?null:ResourceLocation.tryParse(key);
+      if(id!=null){var block=BuiltInRegistries.BLOCK.getOptional(id).orElse(null);if(block!=null&&!block.defaultBlockState().isAir())lodInfillState=block.defaultBlockState();}
+    }
+    return lodInfillState;
+  }
   private static final class TerrainModel extends BakedModelWrapper<BakedModel> {
+    /** Present only when {@link #getModelData} ran, i.e. in the real chunk render path. */
+    private static final ModelProperty<Boolean> RENDERED=new ModelProperty<>();
     private final boolean originalVisible;
     private final BakedModel baseModel;
     TerrainModel(BakedModel original,boolean originalVisible){super(original);this.baseModel=original;this.originalVisible=originalVisible;}
     @Override public ModelData getModelData(BlockAndTintGetter level,BlockPos pos,BlockState state,ModelData input) {
       input=super.getModelData(level,pos,state,input);
+      // Marker for "baked with a real level position". A distant-LOD baker calls getQuads with
+      // ModelData.EMPTY and never reaches this method, so the marker is also the only reliable way
+      // to tell the two paths apart: QUADS is legitimately absent here when no road covers the cell.
+      input=input.derive().with(RENDERED,Boolean.TRUE).build();
       double bottom=com.sora.splineroads.world.SidewalkBlockContact.bottom(level,ClientRoads.INDEX,pos,state);
       if(bottom<0||input.get(BLOCK_BOTTOM)!=null)input=input.derive().with(BLOCK_BOTTOM,bottom).build();
       var fill=input.get(com.sora.splineroads.world.RoadFillEntity.MATERIAL);
@@ -637,7 +656,20 @@ public final class RoadTerrainModels {
       var material=data.get(com.sora.splineroads.world.RoadFillEntity.MATERIAL);var cap=data.get(com.sora.splineroads.world.RoadFillEntity.CAP);
       // Only block entities provide fills. A road_collision block has no entity and its own
       // blockstate variant already renders the material, so it must not be synthesized here.
-      if(material!=null&&!material.isAir()&&cap!=null){
+      if(material==null&&data.get(RENDERED)==null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road){
+        // A distant-LOD renderer (Voxy) samples block states and bakes with ModelData.EMPTY, so it
+        // never runs getModelData and never sees our per-cell quads. The road surface itself lives
+        // in the VBO, and road_collision's blockstate is an empty model, so those cells would emit
+        // nothing and the far terrain shows holes where the road is. Substitute one flat material
+        // for that path only; anything carrying our ModelData keeps the real surface.
+        var fallback=lodInfill();
+        if(fallback!=null){
+          var model=markerModel(Minecraft.getInstance().getBlockRenderer().getBlockModel(fallback));
+          var seed=RandomSource.create(fallback.getSeed(BlockPos.ZERO));
+          base=layer==null||model.getRenderTypes(fallback,seed,ModelData.EMPTY).contains(layer)
+              ?model.getQuads(fallback,side,random,ModelData.EMPTY,layer):List.of();
+        }
+      }      if(material!=null&&!material.isAir()&&cap!=null){
         // The retained material is a delegate, not another terrain carrier.
         // Passing this infill's ModelData into its wrapper would recurse.
         var model=markerModel(Minecraft.getInstance().getBlockRenderer().getBlockModel(material));
@@ -667,6 +699,9 @@ public final class RoadTerrainModels {
     @Override public ChunkRenderTypeSet getRenderTypes(BlockState state,RandomSource random,ModelData data) {
       var fill=data.get(com.sora.splineroads.world.RoadFillEntity.MATERIAL);
       if(fill!=null)return ChunkRenderTypeSet.union(markerModel(Minecraft.getInstance().getBlockRenderer().getBlockModel(fill)).getRenderTypes(fill,random,ModelData.EMPTY),SOLID);
+      // The empty-model path has to advertise SOLID, otherwise a state-only baker never asks
+      // getQuads and the LOD substitute added there would be unreachable.
+      if(data.get(RENDERED)==null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road&&lodInfill()!=null)return SOLID;
       if(!originalVisible)return SOLID;
       var base=super.getRenderTypes(state,random,data);var roads=data.get(QUADS);
       return roads==null||roads.isEmpty()||base.contains(RenderType.solid())?base:ChunkRenderTypeSet.union(base,SOLID);

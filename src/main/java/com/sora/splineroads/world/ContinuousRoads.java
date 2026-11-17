@@ -148,7 +148,7 @@ public final class ContinuousRoads {
    * Keep genuinely farther limits, including caps inside an outside donor. */
   static Node[] effectiveLimits(CompoundTag t){
     var nodes=HostAxes.nodes(t);var stored=t.getList("ContinuousLimits",Tag.TAG_COMPOUND);
-    Node[] result=nodes.clone();if(stored.size()!=nodes.length)return result;
+    Node[] result=nodes.clone();if(stored.size()!=nodes.length||nodes.length<3)return result;
     V center=ContinuousFit.center(nodes,Interchanges.read(t.getCompound("Options")));
     for(int i=0;i<nodes.length;i++){
       Node limit=RoadRecord.readNode(stored.getCompound(i));V ray=nodes[i].position().sub(center);double length=ray.horizontalLength();
@@ -165,6 +165,7 @@ public final class ContinuousRoads {
     var result=new ListTag();if(sources(before).isEmpty())return result;
     var prior=HostAxes.nodes(before);var next=confirmed.toArray(Node[]::new);
     if(prior.length!=next.length)throw new IllegalArgumentException("立交端点方案数量不一致");
+    if(prior.length<3)return result;
     var options=Interchanges.read(before.getCompound("Options"));
     V oldCenter=ContinuousFit.center(prior,options),newCenter=ContinuousFit.center(next,options);
     boolean sameCenter=oldCenter.sub(newCenter).horizontalLength()<=1e-5;
@@ -181,13 +182,16 @@ public final class ContinuousRoads {
   }
   public static boolean rangeBoundary(CompoundTag t,int i,Node target){return virtual(t,i,target);}
   static boolean virtual(CompoundTag t,int i,Node target){
-    var nodes=HostAxes.nodes(t);if(i>=nodes.length||sources(t).stream().noneMatch(s->s.axis()==i/2))return false;
+    var nodes=HostAxes.nodes(t);if(nodes.length<3)return false;
+    if(i>=nodes.length||sources(t).stream().noneMatch(s->s.axis()==i/2))return false;
     V center=ContinuousFit.center(nodes,Interchanges.read(t.getCompound("Options"))),direction=nodes[i].position().sub(center).horizontalUnit();var limits=effectiveLimits(t);
     V end=limits[i].position(),delta=target.position().sub(center);double at=delta.dot(direction),maximum=end.sub(center).dot(direction);
     return at>0&&at<=maximum+1e-6&&Math.abs(delta.dot(direction.left()))<1e-5&&Math.abs(target.position().y()-nodes[i].position().y())<1e-6;
   }
   static BlockPos physicalEnd(CompoundTag t,int i,Node target){
-    long[] points=t.getLongArray("Points");var nodes=HostAxes.nodes(t);BlockPos result=BlockPos.of(points[i]);if(sources(t).stream().noneMatch(s->s.axis()==i/2))return result;
+    long[] points=t.getLongArray("Points");var nodes=HostAxes.nodes(t);BlockPos result=BlockPos.of(points[i]);
+    if(nodes.length<3)return result;
+    if(sources(t).stream().noneMatch(s->s.axis()==i/2))return result;
     V center=ContinuousFit.center(nodes,Interchanges.read(t.getCompound("Options"))),direction=nodes[i].position().sub(center).horizontalUnit();double far=nodes[i].position().sub(center).dot(direction);
     var limits=effectiveLimits(t);double bound=limits[i].position().sub(center).dot(direction);
     for(var source:sources(t))if(source.axis()==i/2&&ContinuousReclaim.eligible(t,source.road().id()))for(boolean first:new boolean[]{true,false}){
