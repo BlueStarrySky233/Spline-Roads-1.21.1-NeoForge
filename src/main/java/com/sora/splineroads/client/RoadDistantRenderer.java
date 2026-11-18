@@ -217,11 +217,6 @@ public final class RoadDistantRenderer {
           + " textures=" + (BIND_TEXTURES != null) + " transform=" + (UPLOAD_TRANSFORM != null)
           + " draw=" + (MESH_DRAW != null);
       System.getLogger("SplineRoads").log(System.Logger.Level.INFO, "[SR] voxy mesh " + wiring);
-      var viewer = Minecraft.getInstance().player;
-      if (viewer != null) {
-        viewer.displayClientMessage(
-            net.minecraft.network.chat.Component.literal("[SR] voxy mesh " + wiring), false);
-      }
     }
     if (broken || SETUP == null || MVP == null || BUILDER_NEW == null
         || BUILDER_RAW_VERTEX == null || BUILDER_BUILD == null || SHADER_FOR_COPYCAT == null
@@ -346,7 +341,7 @@ public final class RoadDistantRenderer {
     // pavement is grouped there), so painted lines and vegetation need different textures.
     for (var face : marks) {
       boolean green = isGreen(face.color());
-      appendFace(builder, face, green ? vegetation() : whiteSprite(), yOffset, true);
+      appendFace(builder, face, green ? vegetation() : whiteSprite(), yOffset, true, deckSamples);
     }
     // Structures (gantries, lamps, railings, piers) are empty block models, so Voxy cannot bake
     // them; their parts are drawn here as boxes in the same quad layout.
@@ -447,6 +442,17 @@ public final class RoadDistantRenderer {
   private static void appendFace(Object builder,
       com.sora.splineroads.core.RoadSurface.Face face, TextureAtlasSprite sprite, double yOffset,
       boolean useFaceColor) throws Throwable {
+    appendFace(builder, face, sprite, yOffset, useFaceColor, null);
+  }
+
+  /**
+   * With {@code deck} given, each vertex takes the road height at its own x/z instead of a single
+   * offset. A slope cannot be drawn with one batch translation: that lifted the markings clear of
+   * the surface at both ends.
+   */
+  private static void appendFace(Object builder,
+      com.sora.splineroads.core.RoadSurface.Face face, TextureAtlasSprite sprite, double yOffset,
+      boolean useFaceColor, List<com.sora.splineroads.core.RoadGeometry.Sample> deck) throws Throwable {
     var points = face.points();
     int argb = face.color();
     float r = ((argb >> 16) & 0xff) / 255f * 0.95f;
@@ -460,9 +466,31 @@ public final class RoadDistantRenderer {
       var mid = points.get(i);
       var last = points.get(i + 1);
       for (var p : new com.sora.splineroads.core.RoadGeometry.V[] {first, mid, last, last}) {
-        vertex(builder, p.x(), p.y() + yOffset + MARKING_LIFT, p.z(), p.x() / TEXTURE_TILES, p.z() / TEXTURE_TILES, 1f, tint, whiteSprite(), false);
+        double y = deck == null
+            ? p.y() + yOffset + MARKING_LIFT
+            : deckHeightAt(deck, p.x(), p.z()) + MARKING_LIFT;
+        vertex(builder, p.x(), y, p.z(), p.x() / TEXTURE_TILES, p.z() / TEXTURE_TILES, 1f, tint,
+            sprite, false);
       }
     }
+  }
+
+  /** Road surface height nearest to the given horizontal position. */
+  private static double deckHeightAt(java.util.List<com.sora.splineroads.core.RoadGeometry.Sample> deck,
+      double x, double z) {
+    double best = Double.NaN;
+    double bestDistance = Double.MAX_VALUE;
+    // Full sampling: stepping through the deck quantised the height into visible steps on slopes.
+    for (int i = 0; i < deck.size(); i++) {
+      var centre = deck.get(i).center();
+      double dx = centre.x() - x, dz = centre.z() - z;
+      double distance = dx * dx + dz * dz;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = centre.y();
+      }
+    }
+    return Double.isFinite(best) ? best : deck.get(0).center().y();
   }
 
   /** Fixture colour per material, mirroring the table RoadStructures uses for its own faces. */
