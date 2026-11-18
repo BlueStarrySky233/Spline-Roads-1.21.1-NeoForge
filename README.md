@@ -1,39 +1,23 @@
 <div align="center">
-
   <h1 style="font-size: 28px; margin: 10px 0 0 0;">Spline Roads</h1>
-
   <p>Spline-based road building mod for Minecraft.<br>Unofficial 1.21.1 NeoForge port of Spline Roads 2.1.0.</p>
-
 </div>
 
 
 
 <p align="center">
-
   <a href="https://github.com/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge/graphs/contributors">
-
     <img alt="GitHub Contributors" src="https://img.shields.io/github/contributors/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge" />
-
   </a>
-
   <a href="https://github.com/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge/issues">
-
     <img alt="Issues" src="https://img.shields.io/github/issues/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge?color=0088ff" />
-
   </a>
-
   <a href="https://github.com/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge/pulls">
-
     <img alt="GitHub pull requests" src="https://img.shields.io/github/issues-pr/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge?color=0088ff" />
-
   </a>
-
   <br/>
-
     <img alt="Stars" src="https://img.shields.io/github/stars/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge" />
-
     <img alt="Forks" src="https://img.shields.io/github/forks/BlueStarrySky233/Spline-Roads-1.21.1-NeoForge" />
-
 </p>
 
 
@@ -75,15 +59,10 @@ Spline Roads 是 Minecraft 的道路建造模组，提供样条道路、路口�
 
 
 | 项目 | 版本 |
-
 |---|---|
-
 | Minecraft | 1.21.1 |
-
 | NeoForge | 21.1.264（21.1.x 任意小版本均可） |
-
 | Java | 21 |
-
 | 模组版本 | 1.21.1-2.1.0-1-hotfix-1 |
 
 
@@ -127,21 +106,13 @@ Spline Roads 是 Minecraft 的道路建造模组，提供样条道路、路口�
 
 
 ```bash
-
 # Windows
-
 set JAVA_HOME=C:\Program Files\Java\jdk-21
-
 gradlew build
 
-
-
 # Linux / macOS
-
 export JAVA_HOME=/path/to/jdk-21
-
 ./gradlew build
-
 ```
 
 
@@ -239,7 +210,6 @@ export JAVA_HOME=/path/to/jdk-21
 - 未移植：`RoadVertex` 的整顶点快速写入。1.21.1 移除了 `BufferBuilder.begin` 与整顶点 `VertexConsumer` 方法，本地以 `addVertex(Pose, ...)` 链式写入等价实现，仅在顶点提交上有约一成开销
 
 **1.21.1-2.1.0-1-hotfix-1**
-
 - 修复安装 FramedBlocks 后无法进入世界的问题。FramedBlocks 的 `ReinforcementModel.reload()` 会以 `state = null` 调用其它围栏模型的 `getQuads`/`getRenderTypes`，`RoadTerrainModels` 未判空而抛 `NullPointerException`，打断 `ModelEvent.BakingCompleted` 派发并使资源重载失败。两处均已加判空。同时远景标线改为逐点贴合路面高度，修复坡道上标线悬空与阶梯状起伏。
 
 
@@ -247,33 +217,19 @@ export JAVA_HOME=/path/to/jdk-21
 
 
 **1.21.1-2.1.0-1**（跟进上游 Spline Roads 2.1.0）
-
 - 上游新增**路口点创建器**（`junction_point_creator`）：可直接在道路断面上创建路口点
-
 - 上游新增**连续道路**体系（拟合 / 提交 / 回收），路口与立交的端点可跨道路连续续建
-
 - 上游新增立交预览的端点确认（仅接受落在原拟合域内的固定端点）
-
 - 上游新增人行道与整格方块的接触面几何（`SidewalkBlockContact` 及客户端模型/四边面）
-
 - 规划地图：端点模式（Ctrl＋滚轮切换，含 HUD 提示）、双击主路选择一对端点、地表缓存秒数设置与关闭后短时保留地表
-
 - 同步上游对道路记录、序列化格式的调整；存档格式升到 73，并移植了"读不出的存档不会被当成新世界"的保护；回滚地形时对栅栏/楼梯等邻居连接属性宽容重建；网络协议号随之上调
-
 - 移植侧：Fabric 渲染桥在 NeoForge 上以空实现保留接缝（无 Fabric 渲染器可挂载）
-
 - 移植侧：**MTR 铁路联动适配 MTR 4.1.x**，用 4 个 Mixin 取代 1.20.1 的 JS coremod；4.1.0 移除了 `positionsToRail`/`railIdMap`，改为按维度自建邻接表并按 `Data.sync()` 失效
-
 - 修复了红绿灯显示错误的 bug
-
 - 修复建造预览的渲染姿态：分割器预览、路基高亮、附属点与车道点选择框原来把世界姿态与相机平移各应用了两次，导致线条横穿画面；现按上游写法统一为 `getPoseStack()` 加 `translate(-camera)`
-
 - 修复只选一条主路（2 个端点）创建辅路时的 `ArrayIndexOutOfBoundsException`：连续范围的几何中心需要两条主路，节点不足时改为按真实端点校验而非越界计算
-
 - 修复规划地图「工具 2」不响应端点模式：原来仍按 Alt/Ctrl 快捷键分派，导致路口点创建器无法从地图内触发；现按端点模式（道路端点 / 路口点 / 附属点 / 出入点）分派
-
 - 恢复规划设置三个滑块的悬停说明（上游 `SettingSlider.hint()`），并修正地表缓存滑块的文案
-
 - 远景 LOD：经由 Voxy 的公开渲染钩子（`LodPipelineHooks`）与它给外部几何准备的 `DistantMeshBuilder`/`DistantShaders` 绘制，不需要修改 Voxy。路面从 `mesh.samples()` 生成整幅带状几何以避免切片面的 UV 压缩；标线取 `RoadSurface` 的标线面并整体平移到路面高度；结构与近景同源，直接复用 `record.structures()`；标牌经 `SmartSignClient.loadedStates()` 取状态后由 `SmartSignFaces` 生成牌面。光照由 Voxy 的 shader 采样原版 lightmap，昼夜与照明自动一致，`luminous()` 部件固定满亮。单条道路最多绘制 800 个结构部件，规划预算 0.25 秒，超时顺延到下一帧。`/sr voxy on|off` 开关，`/sr voxyshade` 调整路面亮度。注意远景标线可能与近景不同（坐标基准不同，仅能整批平移对齐），且绿化带不在远景输出中。
 
 
@@ -281,23 +237,16 @@ export JAVA_HOME=/path/to/jdk-21
 
 
 **1.21.1-2.0-2**（第 2 个移植修订）
-
 - 修复标牌立即模式几何被二次旋转，龙门架/支架不再跟随相机
-
 - 修复规划地图删除端点后选中状态与地图数据未刷新，导致后续点击全部提示"端点已删除"
-
 - 修复 1.21.1 `BufferBuilder.build()` 返回 null 时上传崩溃（光影下按 P 打开规划界面）
-
 - 修复大界面缩放下文字编辑器「确认」按钮被挤出屏幕，改为按可用高度压缩行距
-
 - 新增 `/sr previewdepth on|off` 建造预览深度测试开关
-
 - 道路各层加入亚厘米级高差，减少与地表及彼此之间的深度冲突（2.1.0-1 已撤销：该做法反而把路面抬到建造预览之上，实测未能消除接缝闪烁）
 
 
 
 **1.21.1-2.0**（首个移植修订）
-
 - 完成 Forge 1.20.1 → NeoForge 1.21.1 的构建、API、渲染管线迁移
 
 
