@@ -656,7 +656,10 @@ public final class RoadTerrainModels {
       var material=data.get(com.sora.splineroads.world.RoadFillEntity.MATERIAL);var cap=data.get(com.sora.splineroads.world.RoadFillEntity.CAP);
       // Only block entities provide fills. A road_collision block has no entity and its own
       // blockstate variant already renders the material, so it must not be synthesized here.
-      if(material==null&&data.get(RENDERED)==null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road){
+      // state is null when another mod's model wraps ours and probes it without a block state
+      // (FramedBlocks does this in ReinforcementModel.reload). Dereferencing it crashed the
+      // ModelEvent.BakingCompleted dispatch and left the game stuck on the loading screen.
+      if(material==null&&data.get(RENDERED)==null&&state!=null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road){
         // A distant-LOD renderer (Voxy) samples block states and bakes with ModelData.EMPTY, so it
         // never runs getModelData and never sees our per-cell quads. The road surface itself lives
         // in the VBO, and road_collision's blockstate is an empty model, so those cells would emit
@@ -701,7 +704,7 @@ public final class RoadTerrainModels {
       if(fill!=null)return ChunkRenderTypeSet.union(markerModel(Minecraft.getInstance().getBlockRenderer().getBlockModel(fill)).getRenderTypes(fill,random,ModelData.EMPTY),SOLID);
       // The empty-model path has to advertise SOLID, otherwise a state-only baker never asks
       // getQuads and the LOD substitute added there would be unreachable.
-      if(data.get(RENDERED)==null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road&&lodInfill()!=null)return SOLID;
+      if(data.get(RENDERED)==null&&state!=null&&state.getBlock() instanceof com.sora.splineroads.world.RoadBlocks.Road&&lodInfill()!=null)return SOLID;
       if(!originalVisible)return SOLID;
       var base=super.getRenderTypes(state,random,data);var roads=data.get(QUADS);
       return roads==null||roads.isEmpty()||base.contains(RenderType.solid())?base:ChunkRenderTypeSet.union(base,SOLID);
