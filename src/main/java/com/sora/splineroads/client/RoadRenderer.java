@@ -87,6 +87,10 @@ public final class RoadRenderer {
   private static final Map<UUID, Set<Section>> roadSections = new HashMap<>();
   // Storage belongs to spatial regions; each uploaded range retains its source identity.
   private static Map<Section,GpuSection> regions=new LinkedHashMap<>(),dormant=new LinkedHashMap<>();
+  // 2.1.1: the visible set only changes when a region's bounds or the camera cell change.
+  private static final List<GpuSection> nearbyRegions=new ArrayList<>();
+  private static long regionBoundsRevision,nearbyRevision=-1;
+  private static int nearbyX,nearbyZ,nearbyDistance;
   private static long uploadCancels,uploadFrames,uploadZeroFrames,packedFaces;
   private static boolean extendedEncoding;
   private static long useClock,retainedBytes,lastBudget=-1;
@@ -98,7 +102,6 @@ public final class RoadRenderer {
   private static long retentionRevision;
   // Allocation ownership survives source replacement until the old VBO is closed.
   // Maintain it at upload/close, rather than rescanning every face during movement.
-  private static final Map<UUID,Long> allocatedRoadBytes=new HashMap<>();
   private static final java.util.concurrent.atomic.AtomicLong workerRetentionRevision=new java.util.concurrent.atomic.AtomicLong();
   static long retentionRevision(){return retentionRevision+workerRetentionRevision.get()+RoadTerrainModels.retentionRevision();}
   private static V cameraPosition = new V(0, 0, 0);
@@ -122,14 +125,23 @@ public final class RoadRenderer {
   static StreamingStats streamingStats(){return new StreamingStats(lastCpuMs,lastUploads,dirty.size()+jobs.size(),lastSurfaceIndices);}
   private static final List<GpuSection> visible = new ArrayList<>();
   private static final List<GpuSection> glassVisible = new ArrayList<>();
+  private static final List<GpuSection> layerVisible = new ArrayList<>();
   // BufferBuilder owns native memory; discarding the Java object does not free it in 1.20.1.
   // Road uploads share one arena across frames; preview has a separate reusable arena.
   private static final RoadUploadArena uploadArena = new RoadUploadArena();
   private static final RoadUploadArena previewArena = new RoadUploadArena();
   private static Upload pendingUpload;
   private static final java.util.concurrent.atomic.AtomicLong pieceSerial=new java.util.concurrent.atomic.AtomicLong();
+  private static long materialBit(RoadSurface.Texture texture){return 1L<<texture.ordinal();}
+  /** Textures whose detail band is identical in both ranges can share one upload. */
+  private static long sharedMaterials(Map<RoadSurface.Texture,List<RoadSurface.Face>> near,
+      Map<RoadSurface.Texture,List<RoadSurface.Face>> far){
+    long shared=0;
+    for(var texture:RoadSurface.Texture.values())if(Objects.equals(near.get(texture),far.get(texture)))shared|=materialBit(texture);
+    return shared;
+  }
   private record Prepared(long identity,long cpuBytes,Piece piece,List<RoadSurface.Face> paint,AABB bounds,Map<RoadSurface.Texture,List<RoadSurface.Face>> near,
-      Map<RoadSurface.Texture,List<RoadSurface.Face>> far) {
+      Map<RoadSurface.Texture,List<RoadSurface.Face>> far,long sharedDetailMaterials) {
     private static List<RoadSurface.Face> splitWalks(List<RoadSurface.Face> faces){
       var result=new ArrayList<RoadSurface.Face>();for(var f:faces)result.addAll(RoadTerrainMesh.walkSurface(f)?RoadSurfaceSections.split(List.of(f)):List.of(f));return result;
     }
@@ -192,7 +204,7 @@ public final class RoadRenderer {
       for(var f:piece.detail())near.computeIfAbsent(f.texture(),k->new ArrayList<>()).add(f);
       for(var f:piece.distant())far.computeIfAbsent(f.texture(),k->new ArrayList<>()).add(f);
       long cpuBytes=0;for(var faces:List.of(piece.pavement(),piece.detail(),piece.distant(),paint))for(var face:faces)cpuBytes+=96L+face.points().size()*64L;
-      var bound=new ArrayList<>(piece.detail());bound.addAll(paint);return new Prepared(pieceSerial.incrementAndGet(),cpuBytes,piece,paint,RoadRenderer.bounds(new Piece(piece.pavement(),bound,piece.distant())),near,far);
+      var bound=new ArrayList<>(piece.detail());bound.addAll(paint);return new Prepared(pieceSerial.incrementAndGet(),cpuBytes,piece,paint,RoadRenderer.bounds(new Piece(piece.pavement(),bound,piece.distant())),near,far,sharedMaterials(near,far));
     }
   }
   private record SignalCache(List<RoadSurface.Face> faces, RoadSignalBatch batch) {}
@@ -313,7 +325,7 @@ public final class RoadRenderer {
   private static Prepared append(Prepared a,Prepared b){
     var near=new EnumMap<RoadSurface.Texture,List<RoadSurface.Face>>(RoadSurface.Texture.class);near.putAll(a.near);b.near.forEach((key,value)->near.merge(key,value,RoadRenderer::append));
     var far=new EnumMap<RoadSurface.Texture,List<RoadSurface.Face>>(RoadSurface.Texture.class);far.putAll(a.far);b.far.forEach((key,value)->far.merge(key,value,RoadRenderer::append));
-    return new Prepared(pieceSerial.incrementAndGet(),a.cpuBytes+b.cpuBytes,new Piece(append(a.piece.pavement(),b.piece.pavement()),append(a.piece.detail(),b.piece.detail()),append(a.piece.distant(),b.piece.distant())),append(a.paint,b.paint),a.bounds.minmax(b.bounds),near,far);
+    return new Prepared(pieceSerial.incrementAndGet(),a.cpuBytes+b.cpuBytes,new Piece(append(a.piece.pavement(),b.piece.pavement()),append(a.piece.detail(),b.piece.detail()),append(a.piece.distant(),b.piece.distant())),append(a.paint,b.paint),a.bounds.minmax(b.bounds),near,far,a.sharedDetailMaterials&b.sharedDetailMaterials);
   }
 
   private static final Map<net.minecraft.core.SectionPos,RoadLightSnapshot> lightSnapshots=new HashMap<>();
@@ -330,6 +342,65 @@ public final class RoadRenderer {
     lightSnapshots.put(pos,snapshot);return snapshot;
   }
 
+  /** 2.1.1: availability is stable within one render-thread step. Read states from the
+   *  same loaded chunk used for that check, and cache per-section light availability,
+   *  so the world chunk lookup is not repeated for every voxel. */
+  private static final class FrameLightAccess implements RoadLightReadSet.Access {
+    private net.minecraft.client.multiplayer.ClientLevel level;
+    private final BlockPos.MutableBlockPos pos=new BlockPos.MutableBlockPos();
+    private final RoadFrameSamples lightSections=new RoadFrameSamples(256);
+    private final RoadFrameSamples samples=new RoadFrameSamples(8192);
+    private int chunkX,chunkZ;private boolean haveChunk,loaded;
+    private long lastLightSection;
+    private boolean haveLightSection,lastLightAvailable;
+    private net.minecraft.world.level.chunk.LevelChunk chunk;
+    void beginFrame(net.minecraft.client.multiplayer.ClientLevel next){level=next;haveChunk=false;haveLightSection=false;chunk=null;lightSections.clear();samples.clear();}
+    void clear(){level=null;haveChunk=false;haveLightSection=false;chunk=null;lightSections.clear();samples.clear();}
+    boolean loaded(BlockPos p){
+      int x=p.getX()>>4,z=p.getZ()>>4;
+      if(!haveChunk||x!=chunkX||z!=chunkZ){
+        chunkX=x;chunkZ=z;haveChunk=true;
+        // hasChunk is always true on ClientLevel; use the non-loading cache.
+        chunk=level.getChunkSource().getChunk(x,z,net.minecraft.world.level.chunk.status.ChunkStatus.FULL,false);loaded=chunk!=null;
+      }
+      return loaded;
+    }
+    net.minecraft.world.level.block.state.BlockState state(BlockPos p){
+      return loaded(p)?chunk.getBlockState(p):level.getBlockState(p);
+    }
+    boolean lit(BlockPos p){
+      int x=p.getX()>>4,y=p.getY()>>4,z=p.getZ()>>4;
+      long key=net.minecraft.core.SectionPos.asLong(x,y,z);
+      if(haveLightSection&&lastLightSection==key)return lastLightAvailable;
+      int known=lightSections.get(key);
+      if(known==0){known=level.getLightEngine().lightOnInSection(net.minecraft.core.SectionPos.of(x,y,z))?2:1;lightSections.put(key,known);}
+      haveLightSection=true;lastLightSection=key;lastLightAvailable=known==2;
+      return lastLightAvailable;
+    }
+    @Override public int sample(long position,int requested){
+      int value=samples.get(position),missing=requested&~value;
+      if(missing==0)return requestedValue(value,requested);
+      lightReadPositions++;pos.set(BlockPos.getX(position),BlockPos.getY(position),BlockPos.getZ(position));
+      if(!loaded(pos)){value|=requested|RoadLightReadSet.UNAVAILABLE_OPAQUE|RoadLightReadSet.UNAVAILABLE_PACKED;samples.put(position,value);return requestedValue(value,requested);}
+      var state=state(pos);
+      if((missing&RoadLightReadSet.READ_OPAQUE)!=0&&state.getLightBlock(level,pos)>=15)value|=RoadLightReadSet.OPAQUE;
+      if((missing&RoadLightReadSet.READ_PACKED)!=0){
+        if(lit(pos))value|=LevelRenderer.getLightColor(level,state,pos);
+        else value|=RoadLightReadSet.UNAVAILABLE_PACKED;
+      }
+      value|=requested;samples.put(position,value);
+      return requestedValue(value,requested);
+    }
+    private static int requestedValue(int value,int requested){
+      if((value&RoadLightReadSet.UNAVAILABLE_OPAQUE)!=0)return RoadLightReadSet.UNAVAILABLE_OPAQUE|RoadLightReadSet.UNAVAILABLE_PACKED;
+      return value&(((requested&RoadLightReadSet.READ_OPAQUE)!=0?RoadLightReadSet.OPAQUE:0)
+          |((requested&RoadLightReadSet.READ_PACKED)!=0?RoadLightReadSet.PACKED_MASK|RoadLightReadSet.UNAVAILABLE_PACKED:0)
+          |RoadLightReadSet.UNAVAILABLE_OPAQUE);
+    }
+  }
+
+  private static final FrameLightAccess lightPollAccess=new FrameLightAccess();
+  private static final FrameLightAccess vertexLightAccess=new FrameLightAccess();
   private static boolean sampleChunkLoaded(net.minecraft.client.multiplayer.ClientLevel level,BlockPos pos){
     // ClientLevel.hasChunk is deliberately always true; getChunkAt can return
     // EmptyLevelChunk. Only this non-loading cache lookup proves real data.
@@ -343,18 +414,7 @@ public final class RoadRenderer {
       if(tick-s.checkedLightAt<20)return 0;
       s.lightCheck=s.lightReads.cursor();lightReadChecks++;
     }
-    var level=Minecraft.getInstance().level;var pos=new BlockPos.MutableBlockPos();
-    int read=s.lightCheck.advance((position,requested)->{
-      lightReadPositions++;pos.set(BlockPos.getX(position),BlockPos.getY(position),BlockPos.getZ(position));
-      if(!sampleChunkLoaded(level,pos))return RoadLightReadSet.UNAVAILABLE_OPAQUE|RoadLightReadSet.UNAVAILABLE_PACKED;
-      var state=level.getBlockState(pos);int value=0;
-      if((requested&RoadLightReadSet.READ_OPAQUE)!=0&&state.getLightBlock(level,pos)>=15)value|=RoadLightReadSet.OPAQUE;
-      if((requested&RoadLightReadSet.READ_PACKED)!=0){
-        if(level.getLightEngine().lightOnInSection(net.minecraft.core.SectionPos.of(pos)))value|=LevelRenderer.getLightColor(level,state,pos);
-        else value|=RoadLightReadSet.UNAVAILABLE_PACKED;
-      }
-      return value;
-    },allowance);
+    int read=s.lightCheck.advance(lightPollAccess,allowance);
     if(!s.lightCheck.complete())return read;
     boolean changed=s.lightCheck.changed();s.lightCheck=null;s.checkedLightAt=tick;
     if(changed){lightRefreshes++;s.dirty=true;return read;}
@@ -367,6 +427,7 @@ public final class RoadRenderer {
   }
 
   private static void pollVisibleLight(){
+    lightPollAccess.beginFrame(Minecraft.getInstance().level);
     if(visible.isEmpty())return;
     int remaining=LIGHT_POSITIONS_PER_FRAME;
     var budget=new RoadScanBudget(Math.min(64,visible.size()),System.nanoTime()+500_000);
@@ -396,6 +457,7 @@ public final class RoadRenderer {
     final Set<AtomicUpdate> handoffs=Collections.newSetFromMap(new IdentityHashMap<>());
     boolean distant;
     long nearVertices, farVertices,surfaceVertices,lastUsed;
+    long sharedDetailMaterials=-1L;
     final Matrix4f transform = new Matrix4f();
     AABB bounds,uploadedBounds;
     boolean dirty = true;
@@ -421,13 +483,11 @@ public final class RoadRenderer {
       if(!allocationBytes.isEmpty()){
         long share=(lightReads.bytes()+allocationBytes.size()-1)/allocationBytes.size();
         allocationBytes.replaceAll((id,bytes)->bytes+share);
-        allocationBytes.forEach((id,bytes)->allocatedRoadBytes.merge(id,bytes,Long::sum));
       }
     }
 
     void close() {
       retentionRevision++;
-      allocationBytes.forEach((id,bytes)->allocatedRoadBytes.computeIfPresent(id,(key,total)->total.longValue()==bytes.longValue()?null:total-bytes));
       allocationBytes.clear();
       unloadedGpu.remove(this);
       pavement.forEach(VertexBuffer::close);pavement.clear();paint.forEach(VertexBuffer::close);paint.clear();
@@ -599,7 +659,8 @@ public final class RoadRenderer {
     for(var s:ordered){if(retainedBytes<=limit)break;discardAllocation(s);}
   }
   private static void removePiece(Map<Section,GpuSection> map,UUID id,Section key){
-    var section=map.get(key);if(section==null||section.pieces.remove(id)==null)return;
+    var section=map.get(key);    if(section==null||section.pieces.remove(id)==null)return;
+    section.sharedDetailMaterials=-1L;for(var piece:section.pieces.values())section.sharedDetailMaterials&=piece.sharedDetailMaterials();
     if(map==regions&&displayUpdates.containsKey(id)&&section.owners.values().stream().anyMatch(ranges->ranges.stream().anyMatch(range->range.owner.equals(id))))section.retained.add(id);
     if(pendingUpload!=null&&pendingUpload.section==section){pendingUpload.cancel();pendingUpload=null;}
     section.revision++;section.dirty=true;
@@ -616,7 +677,22 @@ public final class RoadRenderer {
     V origin=key.origin();
     return new AABB(origin.x(),origin.y()-64,origin.z(),origin.x()+64,origin.y()+320,origin.z()+64);
   }
+  private static Collection<GpuSection> nearbyRegions(double x,double z,int distance){
+    if(!Double.isFinite(x)||!Double.isFinite(z)||distance>Integer.MAX_VALUE-2)return regions.values();
+    int cellX=(int)Math.floor(x/64),cellZ=(int)Math.floor(z/64);
+    if(nearbyRevision!=regionBoundsRevision||nearbyX!=cellX||nearbyZ!=cellZ||nearbyDistance!=distance){
+      nearbyRegions.clear();
+      double centerX=cellX*64.0+32,centerZ=cellZ*64.0+32;
+      for(var section:regions.values()){
+        var b=section.bounds;
+        if(b!=null&&RoadVisibility.within(b.minX,b.minZ,b.maxX,b.maxZ,centerX,centerZ,Math.max(0,distance)+2))nearbyRegions.add(section);
+      }
+      nearbyRevision=regionBoundsRevision;nearbyX=cellX;nearbyZ=cellZ;nearbyDistance=distance;
+    }
+    return nearbyRegions;
+  }
   private static void updateBounds(GpuSection section){
+    regionBoundsRevision++;
     section.bounds=section.uploadedBounds;
     for(var p:section.pieces.values()){
       if(p.bounds==null)continue;
@@ -634,7 +710,7 @@ public final class RoadRenderer {
     pieces.forEach((key,p)->{
       var section=map.computeIfAbsent(key,GpuSection::new);
       var group=displayUpdates.get(id);if(group!=null){if(map==regions&&RoadTerrainModels.regionLoaded(key))attach(section,group);else discardAllocation(section);}
-      section.pieces.put(id,p);updateBounds(section);
+      section.pieces.put(id,p);section.sharedDetailMaterials&=p.sharedDetailMaterials();updateBounds(section);
       section.dirty=true;section.revision++;
     });
   }
@@ -644,8 +720,13 @@ public final class RoadRenderer {
     for(UUID id:ids)totals.put(id,retainedRoadBytes(id));
     return totals;
   }
-  static long retainedRoadBytes(UUID id){
-    long total=RoadTerrainModels.retainedBytes(id)+allocatedRoadBytes.getOrDefault(id,0L);var preparation=preparations.get(id);if(preparation!=null){if(preparation.structures!=null)total+=preparation.structures.bytes();if(preparation.context!=null)total+=preparation.context.bytes();}
+  /** 2.1.1: sum live allocations directly instead of mirroring them in a second map. */
+  private static long allocatedBytes(UUID id){
+    long total=0;
+    for(var map:List.of(regions,dormant))for(var section:map.values())total+=section.allocationBytes.getOrDefault(id,0L);
+    return total;
+  }  static long retainedRoadBytes(UUID id){
+    long total=RoadTerrainModels.retainedBytes(id)+allocatedBytes(id);var preparation=preparations.get(id);if(preparation!=null){if(preparation.structures!=null)total+=preparation.structures.bytes();if(preparation.context!=null)total+=preparation.context.bytes();}
     for(var key:roadSections.getOrDefault(id,Set.of())){
       var section=regions.get(key);if(section==null)continue;
       var p=section.pieces.get(id);if(p!=null)total+=p.cpuBytes;
@@ -658,7 +739,14 @@ public final class RoadRenderer {
       discardAllocation(section);
     }
   }
-  static void discardDerived(UUID id){
+  /** 2.1.1: after a completed preparation, ctx/structures are no longer needed for retention. */
+  static boolean releaseCompletedPreparation(UUID id){
+    var p=preparations.get(id);
+    if(p==null||jobs.containsKey(id)||p.surfaces.size()!=p.windows.size()
+        ||p.context==null&&p.structures==null)return false;
+    p.context=null;p.structures=null;retentionRevision++;
+    return true;
+  }  static void discardDerived(UUID id){
     versions.merge(id,1,Integer::sum);var job=jobs.remove(id);if(job!=null)job.cancel();
     remove(id);enqueue(id);
   }
@@ -814,6 +902,7 @@ public final class RoadRenderer {
     lastVertices = 0;lastSurfaceIndices=0;
     boolean shadowPass=ShaderPackState.current().shadowPass();
     if(!shadowPass)RoadTerrainModels.beginFrame();
+    vertexLightAccess.beginFrame(Minecraft.getInstance().level);
     var currentCamera=event.getCamera().getPosition();
     cameraPosition=new V(currentCamera.x,currentCamera.y,currentCamera.z);
     if(!shadowPass){update();RoadTerrainModels.publish();trimUnloadedGpu();}
@@ -824,7 +913,7 @@ public final class RoadRenderer {
     visible.clear();glassVisible.clear();
     int renderChunks=mc.options.getEffectiveRenderDistance();
     // Distance checks precede lighting and uploads, including newly loaded roads.
-    for (var s : regions.values()) {
+    for (var s : nearbyRegions(camera.x,camera.z,renderChunks)) {
       if (s.bounds == null)s.bounds=regionBounds(s.key);
       if (s.retained.isEmpty()&&s.pieces.keySet().stream().noneMatch(ClientRoads::active)) continue;
       double d = s.bounds.distanceToSqr(camera);
@@ -1121,7 +1210,10 @@ public final class RoadRenderer {
     if (biased) { RenderSystem.enablePolygonOffset(); RenderSystem.polygonOffset(-1.0f, -10.0f); }
     ShaderInstance shader = RenderSystem.getShader();
     boolean applied = false;
-    for (var s : visible) {
+    layerVisible.clear();
+    for(var s:visible){var list=paint?s.paint:texture==null?s.pavement:(s.distant?s.far:s.near).get(texture);if(drawable(s,list))layerVisible.add(s);}
+    if(layerVisible.isEmpty())return;
+    for (var s : layerVisible) {
       var buffers = paint?s.paint:texture == null ? s.pavement : (s.distant ? s.far : s.near).get(texture);
       if (!drawable(s,buffers)) continue;
       if (!applied) {
@@ -1359,7 +1451,13 @@ public final class RoadRenderer {
           staged.owners.put(buffer,List.copyOf(ranges));
           if(batch.kind==0){staged.pavement.add(buffer);staged.nearVertices+=vertices;staged.farVertices+=vertices;staged.surfaceVertices+=vertices;}
           else if(batch.kind==3){staged.paint.add(buffer);staged.nearVertices+=vertices;staged.farVertices+=vertices;staged.surfaceVertices+=vertices;}
-          else if(batch.kind==1){staged.near.computeIfAbsent(batch.texture,k->new ArrayList<>()).add(buffer);staged.nearVertices+=vertices;}
+          else if(batch.kind==1){
+            staged.near.computeIfAbsent(batch.texture,k->new ArrayList<>()).add(buffer);staged.nearVertices+=vertices;
+            // 2.1.1: when both ranges hold the same detail band, far reuses this buffer.
+            if((staged.sharedDetailMaterials&materialBit(batch.texture))!=0){
+              staged.far.computeIfAbsent(batch.texture,k->new ArrayList<>()).add(buffer);staged.farVertices+=vertices;
+            }
+          }
           else {staged.far.computeIfAbsent(batch.texture,k->new ArrayList<>()).add(buffer);staged.farVertices+=vertices;}
         }
         vertices=0;ranges.clear();
@@ -1587,15 +1685,15 @@ public final class RoadRenderer {
       public boolean opaque(int x,int y,int z){
         BlockPos pos=new BlockPos(x,y,z);
         if(LIGHT_DIAGNOSTICS)section.lighting.computeIfAbsent(net.minecraft.core.SectionPos.of(pos),RoadRenderer::lightPair);
-        boolean available=sampleChunkLoaded(level,pos);
-        boolean opaque=available&&level.getBlockState(pos).getLightBlock(level,pos)>=15;
+        boolean available=vertexLightAccess.loaded(pos);
+        boolean opaque=available&&vertexLightAccess.state(pos).getLightBlock(level,pos)>=15;
         return section.lightBuilder.opaque(pos.asLong(),opaque,available);
       }
       public int packed(int x,int y,int z){
         BlockPos pos=new BlockPos(x,y,z);
         if(LIGHT_DIAGNOSTICS)section.lighting.computeIfAbsent(net.minecraft.core.SectionPos.of(pos),RoadRenderer::lightPair);
         int packed=cache.computeIfAbsent(pos,k->{
-          boolean available=sampleChunkLoaded(level,k)&&level.getLightEngine().lightOnInSection(net.minecraft.core.SectionPos.of(k));
+          boolean available=vertexLightAccess.loaded(k)&&vertexLightAccess.lit(k);
           return section.lightBuilder.packed(k.asLong(),LevelRenderer.getLightColor(level,k),available);
         });
         // computeIfAbsent records the value and its availability together. A

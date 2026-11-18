@@ -179,6 +179,36 @@ public final class RoadNetwork {
     final RoadPublicationBudget publication=new RoadPublicationBudget();
     UUID activeRoad,activeSign,activePoints;
     int signPreparations;
+    // 2.1.1: a road sent moments ago need not be re-encoded when its chunk reloads.
+    static final int RECENT_ROADS_LIMIT = 2048;
+    static final long RECENT_ROAD_NANOS = 10_000_000_000L; // 200 ticks
+    final LinkedHashMap<UUID, RecentRoad> recentlySent = new LinkedHashMap<>();
+    // 2.1.1: nearest roads first, and short junction triangles interleaved so a large
+    // intersection does not starve the travel corridors around it.
+    ClusterTransfer cluster;
+    long roadPriorityTick = Long.MIN_VALUE;
+    final ArrayDeque<UUID> nearRoads = new ArrayDeque<>();
+    final ArrayDeque<UUID> nearJunctionTriangles = new ArrayDeque<>();
+    int roadStarts;
+    boolean serveOldest;
+
+    void remember(RoadRecord road, long tick) {
+      recentlySent.put(road.id(), new RecentRoad(road, tick));
+      if (recentlySent.size() > RECENT_ROADS_LIMIT) {
+        var it = recentlySent.keySet().iterator();
+        it.next();
+        it.remove();
+      }
+    }
+
+    /** Reuses a very recent transfer instead of re-encoding and re-sending it. */
+    boolean restore(RoadRecord road, long tick) {
+      var previous = recentlySent.remove(road.id());
+      if (previous == null || previous.record() != road
+          || tick - previous.tick() > RECENT_ROAD_NANOS) return false;
+      sent.put(road.id(), road);
+      return true;
+    }
 
 
     Watching(String dimension) {
@@ -186,9 +216,22 @@ public final class RoadNetwork {
     }
   }
 
+  private record RecentRoad(RoadRecord record, long tick) {}
+
   private static final class Transfer {
-    final RoadRecord record;List<RoadWire.Fragment> parts;int next;
+    final RoadRecord record;
+    java.util.concurrent.CompletableFuture<List<RoadWire.Fragment>> encoded;
+    List<RoadWire.Fragment> parts;int next;boolean clusterRejected;
     Transfer(RoadRecord record){this.record=record;}
+  }
+  private static final int CLUSTER_ROADS = 32;
+  /** 2.1.1: several roads from one assembly travel as a single transfer. */
+  private static final class ClusterTransfer {
+    final List<Transfer> roads;
+    java.util.concurrent.CompletableFuture<List<RoadWire.Fragment>> encoded;
+    List<RoadWire.Fragment> parts;
+    int next;
+    ClusterTransfer(List<Transfer> roads){this.roads=List.copyOf(roads);}
   }
   private static final class SignTransfer {
     final UUID road; final long version; final boolean active; final List<com.sora.splineroads.core.SmartSigns.State> states;
@@ -318,7 +361,7 @@ public final class RoadNetwork {
       case 0 -> publishBatch(player,state,data,deadline,tick,remaining);
       case 1 -> publishPoints(player,state,data,deadline,remaining);
       case 2 -> publishSign(player,state,data,deadline,remaining);
-      default -> publishRoad(player,state,data,deadline,remaining);
+      default -> publishRoad(player,state,data,deadline,remaining,tick);
     });
   }
 
@@ -404,20 +447,108 @@ public final class RoadNetwork {
       state.signTransfers.remove(entry.getKey());state.activeSign=null;
     }return bytes;
   }
-  private static int publishRoad(ServerPlayer player,Watching state,RoadData data,long deadline,int remaining){
-    var entry=next(state.pending,state.activeRoad);if(entry==null){state.activeRoad=null;return 0;}
+  /** Pops the nearest queued road, skipping ids that left the pending set. */
+  private static Map.Entry<UUID,Transfer> nextNearby(Watching state,ArrayDeque<UUID> queue){
+    while(!queue.isEmpty()){
+      UUID id=queue.removeFirst();var transfer=state.pending.get(id);
+      if(transfer!=null)return Map.entry(id,transfer);
+    }
+    return null;
+  }
+
+  private static int publishCluster(ServerPlayer player,Watching state,long deadline,int remaining){
+    var cluster=state.cluster;
+    if(cluster.roads.stream().anyMatch(transfer->state.pending.get(transfer.record.id())!=transfer)){
+      cancelTransfer(player,cluster.parts,cluster.next,null);
+      state.cluster=null;
+      return 0;
+    }
+    if(cluster.parts==null){
+      if(cluster.encoded==null)cluster.encoded=PACKETS.requestTag(()->{
+        var packet=new CompoundTag();
+        packet.putString("Type","roadCluster");packet.putString("Dimension",state.dimension);
+        RoadSnapshotCodec.write(packet,cluster.roads.stream().map(transfer->transfer.record).toList());
+        return packet;
+      });
+      if(!ready(cluster.encoded))return 0;
+      try{cluster.parts=cluster.encoded.join();}
+      catch(java.util.concurrent.CompletionException|java.util.concurrent.CancellationException failure){
+        // Fall back to individual packets when geometry exceeds the cluster budget.
+        for(var transfer:cluster.roads)transfer.clusterRejected=true;
+        state.cluster=null;
+        return 0;
+      }
+    }
+    if(!canSend(cluster.parts,cluster.next,remaining,deadline))return 0;
+    if(cluster.next==0){if(!state.serveOldest)state.roadStarts++;state.serveOldest=!state.serveOldest;}
+    int bytes=fragment(player,cluster.parts.get(cluster.next++));
+    if(cluster.next==cluster.parts.size()){
+      for(var transfer:cluster.roads){var id=transfer.record.id();state.pending.remove(id);state.sent.put(id,transfer.record);}
+      state.cluster=null;
+    }
+    return bytes;
+  }
+  private static int publishRoad(ServerPlayer player,Watching state,RoadData data,long deadline,int remaining,long tick){
+    if(state.cluster!=null)return publishCluster(player,state,deadline,remaining);
+    if(state.pending.isEmpty()){state.activeRoad=null;return 0;}
+    if(state.activeRoad==null&&state.roadPriorityTick!=tick){
+      state.roadPriorityTick=tick;
+      state.nearRoads.clear();state.nearJunctionTriangles.clear();
+      var position=player.position();
+      var nearest=new ArrayList<Map.Entry<UUID,Double>>();
+      var triangles=new ArrayList<Map.Entry<UUID,Double>>();
+      for(var id:state.pending.keySet()){
+        var road=data.index.roads.get(id);
+        if(road==null)continue;
+        var min=road.mesh.min();var max=road.mesh.max();
+        double dx=Math.max(0,Math.max(min.x()-position.x,position.x-max.x()));
+        double dz=Math.max(0,Math.max(min.z()-position.z,position.z-max.z()));
+        (road.junctionTriangle()?triangles:nearest).add(Map.entry(id,dx*dx+dz*dz));
+      }
+      nearest.sort(Map.Entry.comparingByValue());triangles.sort(Map.Entry.comparingByValue());
+      nearest.stream().limit(24).map(Map.Entry::getKey).forEach(state.nearRoads::addLast);
+      triangles.stream().limit(24).map(Map.Entry::getKey).forEach(state.nearJunctionTriangles::addLast);
+    }
+    Map.Entry<UUID,Transfer> entry=null;
+    if(state.activeRoad==null&&!state.serveOldest){
+      // One large intersection can contain hundreds of short records. Give its
+      // interior regular turns while nearby travel corridors are still arriving.
+      var first=state.roadStarts%3==2?state.nearJunctionTriangles:state.nearRoads;
+      var second=first==state.nearRoads?state.nearJunctionTriangles:state.nearRoads;
+      entry=nextNearby(state,first);
+      if(entry==null)entry=nextNearby(state,second);
+    }
+    if(entry==null)entry=next(state.pending,state.activeRoad);
+    if(entry==null){state.activeRoad=null;return 0;}
     var transfer=entry.getValue();var built=data.index.roads.get(entry.getKey());
     if(built==null||built.record!=transfer.record||Collections.disjoint(built.chunks,state.chunks)){
       cancelTransfer(player,transfer.parts,transfer.next,entry.getKey());state.pending.remove(entry.getKey());state.activeRoad=null;return 0;
     }
+    // 2.1.1: short junction-triangle records of one assembly travel as a single cluster.
+    if(state.activeRoad==null&&built.junctionTriangle()&&!transfer.clusterRejected){
+      var group=new ArrayList<Transfer>();
+      group.add(transfer);
+      for(var candidate:state.pending.values()){
+        if(group.size()==CLUSTER_ROADS)break;
+        if(candidate==transfer||candidate.next!=0||candidate.clusterRejected||!Objects.equals(candidate.record.assembly(),transfer.record.assembly()))continue;
+        var part=data.index.roads.get(candidate.record.id());
+        if(part!=null&&part.record==candidate.record&&part.junctionTriangle())group.add(candidate);
+      }
+      if(group.size()>1){
+        state.cluster=new ClusterTransfer(group);
+        return publishCluster(player,state,deadline,remaining);
+      }
+    }
     if(transfer.parts==null){
-      var encoded=PACKETS.request(state.dimension,transfer.record);if(!ready(encoded))return 0;
+      // A city-wide queue can exceed the shared LRU before this transfer's next turn.
+      if(transfer.encoded==null)transfer.encoded=PACKETS.request(state.dimension,transfer.record);
+      var encoded=transfer.encoded;if(!ready(encoded))return 0;
       try{transfer.parts=RoadWire.reidentify(encoded.join());}
       catch(java.util.concurrent.CompletionException|java.util.concurrent.CancellationException e){state.pending.remove(entry.getKey());state.activeRoad=null;player.displayClientMessage(Component.literal("道路同步失败："+(e.getCause()==null?e.getMessage():e.getCause().getMessage())),false);return 0;}
     }
     if(!canSend(transfer.parts,transfer.next,remaining,deadline))return 0;
     int bytes=fragment(player,transfer.parts.get(transfer.next++));state.activeRoad=entry.getKey();
-    if(transfer.next==transfer.parts.size()){state.sent.put(entry.getKey(),transfer.record);state.pending.remove(entry.getKey());state.activeRoad=null;}return bytes;
+    if(transfer.next==transfer.parts.size()){state.sent.put(entry.getKey(),transfer.record);state.remember(transfer.record,System.nanoTime());state.pending.remove(entry.getKey());state.activeRoad=null;}return bytes;
   }
   public static String metrics(){return "wireFragments="+sentFragments+" wireMiB="+(sentBytes/1048576)+" publishMs="+(publicationNanos/1000000)+" publishMaxMs="+(publicationMaxNanos/1000000)+" resync="+resyncs+" hardResync="+hardResyncs+" maintenanceMs="+(maintenanceNanos/1000000)+" maintenanceMaxMs="+(maintenanceMaxNanos/1000000)+" encodings="+PACKETS.encodings()+" signEncodings="+PACKETS.signEncodings()+" maxWaitTicks="+WATCHING.values().stream().mapToLong(s->s.maxWaitTicks).max().orElse(0);}
   public static void stop(){RoadRecord.clearMeshCaches();com.sora.splineroads.core.RoadClearance.clearPreparedCache();RoadPlanningJobs.stop();LaneRamps.clearPreviewSnapshots();TollTool.clearPreviews();WATCHING.clear();PACKETS.clear();LAST_ACTION.clear();LAST_PREVIEW.clear();playerCursor=levelCursor=0;}
@@ -593,7 +724,11 @@ public final class RoadNetwork {
     if(t.getString("Action").equals("lanePointResync")) {
       var b=RoadData.get(player.serverLevel()).index.roads.get(t.getUUID("Id"));
       var state=watching(player);
-      if(b!=null&&!Collections.disjoint(b.chunks,state.chunks)){state.sent.remove(b.record.id());road(player,b.record);}
+      if(b!=null&&!Collections.disjoint(b.chunks,state.chunks)){
+        state.sent.remove(b.record.id());
+        // 2.1.1: reuse a transfer sent moments ago instead of re-encoding the whole road.
+        if(!state.restore(b.record,System.nanoTime()))road(player,b.record);
+      }
       return;
     }
     if(t.getString("Action").equals("deletePreview")||t.getString("Action").equals("laneRampDeletePreview")||t.getString("Action").equals("elevatedAccessPreview")){try{perform(player,t);}catch(RuntimeException e){result(player,false,e.getMessage()==null?"预览读取失败":e.getMessage(),t);}return;}

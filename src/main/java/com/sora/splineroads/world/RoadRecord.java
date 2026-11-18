@@ -156,11 +156,9 @@ public record RoadRecord(
     this(id, owner, a, b, start, end, settings, automatic, clearance, List.of());
   }
 
-  private static final int MAX_STRUCTURES=50_000;
   public RoadRecord {
-    if(structures.size()>MAX_STRUCTURES)throw new IllegalArgumentException(com.sora.splineroads.core.RoadPartCompaction.budgetMessage(id,structures,MAX_STRUCTURES));
+    // 2.1.1 removed the per-road 50,000 structure cap (RoadPartCompaction.budgetMessage is gone).
     structures = junction==null?List.copyOf(structures):com.sora.splineroads.core.JunctionSignals.refreshHeads(structures,junction.get().structures());
-    if(structures.size()>MAX_STRUCTURES)throw new IllegalArgumentException(com.sora.splineroads.core.RoadPartCompaction.budgetMessage(id,structures,MAX_STRUCTURES));
     alignment = List.copyOf(alignment);
   }
 
@@ -190,6 +188,11 @@ public record RoadRecord(
   }
 
   public CompoundTag save() {
+    return saveShared(null,null);
+  }
+
+  /** 2.1.1: a save can share identical junction specs across roads instead of repeating them. */
+  CompoundTag saveShared(Map<com.sora.splineroads.core.JunctionSpec,Integer> shared,ListTag specs) {
     CompoundTag t = new CompoundTag();
     t.putUUID("Id", id);
     t.putUUID("Owner", owner);
@@ -207,7 +210,7 @@ public record RoadRecord(
       t.putDouble("FurnitureOrigin", furniturePhase.origin());
       t.putInt("FurnitureDirection", furniturePhase.direction());
     }
-    if (junction != null) t.put("Junction", JunctionCodec.writeRef(junction));
+    if (junction != null) t.put("Junction",shared==null?JunctionCodec.writeRef(junction):JunctionCodec.writeSharedRef(junction,shared,specs));
     if(toll!=null)t.put("Toll",TollCodec.write(toll));
     if(fragment!=null)t.put("Slice",RoadSliceCodec.write(fragment));
     if (assembly != null) t.putUUID("Assembly", assembly);
@@ -222,7 +225,6 @@ public record RoadRecord(
 
   private byte[] packStructures() {return packStructures(structures);}
   public static byte[] packStructures(List<Part> structures) {
-    if(structures.size()>MAX_STRUCTURES)throw new IllegalArgumentException("设施数量 "+structures.size()+" 超过每路上限 "+MAX_STRUCTURES);
     try {
       var bytes = new ByteArrayOutputStream();
       var out = new DataOutputStream(bytes);
@@ -261,7 +263,7 @@ public record RoadRecord(
     try {
       var in = new DataInputStream(new ByteArrayInputStream(bytes));
       int count = in.readInt();boolean corners=count==-32,models=corners||count==-31;if(models)count=in.readInt();
-      if (count < 0 || count > MAX_STRUCTURES || (long) count * 66 > bytes.length - 4)
+      if (count < 0 || (long) count * 66 > bytes.length - 4)
         throw new IOException("invalid structure count");
       List<Part> parts = new ArrayList<>(count);
       var materials = com.sora.splineroads.core.RoadStructures.Material.values();
@@ -290,6 +292,10 @@ public record RoadRecord(
   }
 
   public static RoadRecord load(CompoundTag t) {
+    return loadShared(t,List.of());
+  }
+
+  static RoadRecord loadShared(CompoundTag t,List<com.sora.splineroads.core.JunctionSpec> specs) {
     List<Part> parts = new ArrayList<>();
     for (Tag tag : t.getList("Structures", Tag.TAG_COMPOUND)) {
       CompoundTag q = (CompoundTag) tag;
@@ -327,7 +333,7 @@ public record RoadRecord(
         t.contains("FurnitureOrigin")
             ? new RoadFurniture.Phase(t.getDouble("FurnitureOrigin"), t.getInt("FurnitureDirection"))
             : null,
-        t.contains("Junction") ? JunctionCodec.readRef(t.getCompound("Junction")) : null,
+        t.contains("Junction") ? JunctionCodec.readSharedRef(t.getCompound("Junction"),specs) : null,
         t.contains("Toll")?TollCodec.read(t.getCompound("Toll")):null,t.contains("Slice")?RoadSliceCodec.read(t.getCompound("Slice")):null);
   }
 
@@ -602,21 +608,27 @@ public record RoadRecord(
   /** Interpret legacy split handles only for an explicit editor operation; never rewrite the world on load. */
   public RoadRecord localCurveForEditing(){
     if(fragment==null||!fragment.curveAnchors().isEmpty()||settings.mode()!=Mode.CURVE&&settings.options().routing().controls().isEmpty()||alignment.isEmpty())return this;
-    return RoadSplitGeometry.range(this,0,mesh().length(),id,a,b,start,end,fragment.connection());
+    double length=mesh().length();
+    // 2.1.1: a short slice has no legal interior curve-handle position.
+    if(length<=4)return this;
+    return RoadSplitGeometry.range(this,0,length,id,a,b,start,end,fragment.connection());
   }
   private Settings localizedRequest(Settings request,RoadRecord localized){
     return request.options().routing().equals(settings.options().routing())
         ?request.options(request.options().route(localized.settings().options().routing())):request;
   }
   public RoadPlanner.Plan retainedPlan(Settings request,RoadPlanner.Hint a,RoadPlanner.Hint b,Node authoredStart,Node authoredEnd){
-    var localized=localCurveForEditing();if(localized!=this)return localized.retainedPlan(localizedRequest(request,localized),a,b,authoredStart,authoredEnd);
+    var localized=localCurveForEditing();
+    return localized.retainedLocalizedPlan(localizedRequest(request,localized),a,b,authoredStart,authoredEnd);
+  }
+  private RoadPlanner.Plan retainedLocalizedPlan(Settings request,RoadPlanner.Hint a,RoadPlanner.Hint b,Node authoredStart,Node authoredEnd){
     if(fragment==null||alignment.isEmpty()||!sameNode(start,authoredStart)||!sameNode(end,authoredEnd))return null;
     boolean auto=automatic&&request.mode()==Mode.AUTO;
     var wanted=auto?RoadPlanner.mode(request,settings.mode(),request.arcDegrees()):request;
     var probe=new RoadRecord(id,owner,this.a,this.b,a.node(),b.node(),wanted,automatic,clearance);
     if(!sameSavedEndpoints(probe))return null;
     var candidate=new RoadRecord(id,owner,this.a,this.b,start,end,wanted,automatic,clearance);
-    var kept=retainAlignment(candidate);
+    var kept=retainLocalizedAlignment(candidate);
     if(kept.fragment()==null)return null;
     var mesh=kept.rawMesh();
     // Connection hints refer to the median axis, while stored samples are physical
@@ -639,7 +651,7 @@ public record RoadRecord(
       var normalized=new Settings(settings.mode(),ps.style(),ps.width(),ps.thickness(),requested.tension(),settings.arcDegrees(),ps.startWidth(),ps.endWidth(),ps.structure(),ps.taperVersion(),ps.rampTurn(),ps.options());
       var candidate=new RoadRecord(proposal.id(),proposal.owner(),proposal.a(),proposal.b(),start,end,normalized,
           proposal.automatic(),proposal.clearance(),proposal.structures(),proposal.endCaps(),proposal.buildVersion(),proposal.assembly(),proposal.alignment(),proposal.furniturePhase(),proposal.junction(),proposal.toll(),proposal.fragment());
-      var retained=retainAlignment(candidate);
+      var retained=retainLocalizedAlignment(candidate);
       if(retained.fragment()!=null)return retained;
     }
     return retainAlignment(proposal);
@@ -657,7 +669,11 @@ public record RoadRecord(
         &&(b||com.sora.splineroads.core.RoadMedianAnchor.position(saved,false).distance(proposal.end().position())<1e-7);
   }
   public RoadRecord retainAlignment(RoadRecord proposal){
-    var localized=localCurveForEditing();if(localized!=this)return localized.retainAlignment(proposal.settings(localizedRequest(proposal.settings(),localized)));
+    var localized=localCurveForEditing();
+    return localized.retainLocalizedAlignment(
+        localized==this?proposal:proposal.settings(localizedRequest(proposal.settings(),localized)));
+  }
+  private RoadRecord retainLocalizedAlignment(RoadRecord proposal){
     var s=proposal.settings();var a=settings.options();var b=s.options();
     if(alignment.isEmpty()||!sameNode(start,proposal.start())||!sameNode(end,proposal.end())
         ||settings.mode()!=s.mode()||settings.tension()!=s.tension()||settings.arcDegrees()!=s.arcDegrees()

@@ -290,7 +290,13 @@ public final class RoadData extends SavedData {
   public RoadRecord connect(ServerLevel level,ServerPlayer player,BlockPos a,BlockPos b,Settings settings,UUID replace,boolean levelEnds,boolean forceJunction) {return connect(level,player,a,b,settings,replace,levelEnds,forceJunction,forceJunction);}
   public RoadRecord connect(ServerLevel level,ServerPlayer player,BlockPos a,BlockPos b,Settings settings,UUID replace,boolean levelEnds,boolean forceA,boolean forceB) {return connect(level,player,a,b,settings,replace,levelEnds,forceA,forceB,List.of());}
   public RoadRecord connect(ServerLevel level,ServerPlayer player,BlockPos a,BlockPos b,Settings settings,UUID replace,boolean levelEnds,boolean forceA,boolean forceB,List<BlockPos> controlNodes) {
-    if(replace==null)JunctionPointTool.requireDifferent(level,a,b);
+    if(replace==null){
+      // 2.1.1: a junction point can be removed from the map; refuse to build on a hidden marker.
+      for(BlockPos pos:List.of(a,b))
+        if(level.getBlockEntity(pos) instanceof NodeEntity node&&!node.visibleMarker())
+          throw new IllegalArgumentException("路口点已删除，请重新选择");
+      JunctionPointTool.requireDifferent(level,a,b);
+    }
     else if(JunctionPointConnections.group(this,replace)!=null)throw new IllegalArgumentException("请使用附属点连接道路的整体编辑器");
     if(settings.style()==Style.TOLL)throw new IllegalArgumentException("请使用收费站生成器");
     if(TollRoads.reverseConnection(this,a,b))return connectDirected(level,player,b,a,settings,replace,levelEnds,forceB,forceA,controlNodes);
@@ -372,8 +378,8 @@ public final class RoadData extends SavedData {
           ma = atGround(ma, a);
           mb = atGround(mb, b);
         }
-        ah = RoadPlanner.Hint.free(ma);
-        bh = RoadPlanner.Hint.free(mb);
+        ah = RoadConnectionChecks.curveHint(settings,RoadPlanner.Hint.free(ma),seamA);
+        bh = RoadConnectionChecks.curveHint(settings,RoadPlanner.Hint.free(mb),seamB);
       }
       settings = joinWidths(settings, endpointWidth(a, replace), endpointWidth(b, replace));
       CompoundTag joins=new CompoundTag();jointPayload(joins,a,b,replace);
@@ -561,10 +567,10 @@ public final class RoadData extends SavedData {
     Node n = entity.node();
     RoadIndex.Built best = null;
     double bestScore = -Double.MAX_VALUE;
-    for (var built : index.roads.values()) {
-      if (built.record.id().equals(exclude)
-          || (!built.record.a().equals(pos) && !built.record.b().equals(pos))
-          || !transitionEndpoint(built,pos)&&!built.record.settings().style().ramp()) continue;
+    for (UUID id : index.atNode(pos)) {
+      if (id.equals(exclude)) continue;
+      var built = index.roads.get(id);
+      if (!transitionEndpoint(built,pos)&&!built.record.settings().style().ramp()) continue;
       double score =
           towards == null
               ? built.record.settings().width()
@@ -598,16 +604,16 @@ public final class RoadData extends SavedData {
 
   public double endpointWidth(BlockPos p, UUID exclude) {
     double width = 0;
-    for (var built : index.roads.values())
-      if (!built.record.id().equals(exclude)
-          && (transitionEndpoint(built,p)||built.record.settings().style().ramp())
-          && (built.record.a().equals(p) || built.record.b().equals(p)))
+    for (UUID id : index.atNode(p)) {
+      var built = index.roads.get(id);
+      if(!id.equals(exclude)&&(transitionEndpoint(built,p)||built.record.settings().style().ramp()))
         width =
             Math.max(
                 width,
                 2
                     * (built.record.a().equals(p) ? built.mesh.first() : built.mesh.last())
                         .halfWidth());
+    }
     return width;
   }
 
@@ -1291,7 +1297,21 @@ public final class RoadData extends SavedData {
       if(touched.size()>RoadLimits.MAX_EDIT_CELLS)throw new IllegalArgumentException("一次分割涉及的世界范围过大");
       Map<Long,List<RoadIndex.Built>> body=new HashMap<>(),finalByChunk=new HashMap<>();Set<Long> air=new HashSet<>(),dry=new HashSet<>(),touchedChunks=new HashSet<>();
       Map<Long,List<BlockPos>> touchedByChunk=new HashMap<>();for(long key:touched){var pos=BlockPos.of(key);long chunk=new net.minecraft.world.level.ChunkPos(pos).toLong();touchedChunks.add(chunk);touchedByChunk.computeIfAbsent(chunk,k->new ArrayList<>()).add(pos);}chunks.load(touchedChunks);
-      for(var r:finalRoads)for(long chunk:r.chunks)if(touchedChunks.contains(chunk)){finalByChunk.computeIfAbsent(chunk,k->new ArrayList<>()).add(r);for(var pos:touchedByChunk.get(chunk)){long key=pos.asLong();if(!r.boxes(pos).isEmpty())body.computeIfAbsent(key,k->new ArrayList<>()).add(r);if(r.clearanceAt(pos)){air.add(key);if(r.tunnelAt(pos))dry.add(key);}}}
+      for(var r:finalRoads){
+        // 2.1.1: a rasterized road already holds its cells, so touched positions are looked up
+        // directly instead of scanning every touched position in each of its chunks.
+        if(Collections.disjoint(r.chunks,touchedChunks))continue;
+        for(long chunk:r.chunks)if(touchedChunks.contains(chunk))
+          finalByChunk.computeIfAbsent(chunk,k->new ArrayList<>()).add(r);
+        if(r.rasterized()){
+          for(long key:r.cells.keySet())if(touched.contains(key))body.computeIfAbsent(key,k->new ArrayList<>()).add(r);
+          for(long key:r.clearanceCells)if(touched.contains(key)){air.add(key);if(r.tunnelAt(BlockPos.of(key)))dry.add(key);}
+        }else for(long chunk:r.chunks)for(var pos:touchedByChunk.getOrDefault(chunk,List.of())){
+          long key=pos.asLong();
+          if(!r.boxes(pos).isEmpty())body.computeIfAbsent(key,k->new ArrayList<>()).add(r);
+          if(r.clearanceAt(pos)){air.add(key);if(r.tunnelAt(pos))dry.add(key);}
+        }
+      }
       Set<BlockPos> endpoints=new HashSet<>();for(var r:built){endpoints.add(r.record.a());endpoints.add(r.record.b());}endpoints.add(node.to());
       // A saved connector changes only its source point's owning slice. Its
       // still-linked target/parent markers remain the same legitimate contacts
@@ -1326,13 +1346,16 @@ public final class RoadData extends SavedData {
     final Map<UUID,RoadRecord> streetsBefore;
     final Map<UUID,CompoundTag> junctionsBefore,interchangesBefore;
     final SmartSignRoads.Snapshot signsBefore;final boolean dirtyBefore=isDirty(),fullMetadata;
-    final Map<Long,BlockState> world=new HashMap<>(),original=new HashMap<>(),fill=new HashMap<>();
+    // 2.1.1: packed block positions share many Long.hashCode values on broad flat roads.
+    // Primitive hashing keeps the exact rollback read set without collision trees.
+    final Long2ObjectOpenHashMap<BlockState> world,original=new Long2ObjectOpenHashMap<>(),fill=new Long2ObjectOpenHashMap<>();
     // A commit publishes fresh paving maps only after all world writes succeed.
     // Retaining the previous generation is sufficient for rollback; it is never
     // mutated by this transaction and needs no city-wide preparation copy.
     final Long2ObjectOpenHashMap<BlockState> walks=sidewalkPlaced;
-    final Map<Long,CompoundTag> entities=new HashMap<>();final Set<Long> aprons=apronPlaced;
+    final Long2ObjectOpenHashMap<CompoundTag> entities;final Set<Long> aprons=apronPlaced;
     EditSnapshot(ServerLevel level,PreparedEdit edit,boolean fullMetadata){
+      world=new Long2ObjectOpenHashMap<>(edit.touched().size());entities=new Long2ObjectOpenHashMap<>(edit.touched().size());
       this.fullMetadata=fullMetadata;
       streetsBefore=new LinkedHashMap<>();
       if(fullMetadata)streetsBefore.putAll(streets);
@@ -1344,6 +1367,20 @@ public final class RoadData extends SavedData {
       interchangesBefore=fullMetadata?copyTags(interchanges):Map.of();
       signsBefore=fullMetadata?smartSigns.snapshot():null;
       int captured=0;for(long key:edit.touched()){if((captured++&1023)==0)com.sora.splineroads.core.RoadPlanningBudget.check();var pos=BlockPos.of(key);world.put(key,level.getBlockState(pos));var be=level.getBlockEntity(pos);if(be!=null)entities.put(key,be.saveWithFullMetadata(level.registryAccess()));if(terrainOriginal.containsKey(key))original.put(key,terrainOriginal.get(key));if(terrainFill.containsKey(key))fill.put(key,terrainFill.get(key));}
+      // 2.1.1: a normal shape update can drop a plant or snow layer just above the touched soil.
+      // Capture that dependent cell (including a tall plant's upper half) before the first write.
+      for(long key:edit.touched()){
+        var plant=BlockPos.of(key).above();if(edit.touched().contains(plant.asLong()))continue;
+        for(int half=0;half<2;half++,plant=plant.above()){
+          if(level.isOutsideBuildHeight(plant))break;
+          long plantKey=plant.asLong();var state=level.getBlockState(plant);
+          if(!(state.getBlock() instanceof net.minecraft.world.level.block.BushBlock)
+              &&!(state.getBlock() instanceof net.minecraft.world.level.block.SnowLayerBlock))break;
+          world.put(plantKey,state);
+          if(terrainOriginal.containsKey(plantKey))original.put(plantKey,terrainOriginal.get(plantKey));
+          if(terrainFill.containsKey(plantKey))fill.put(plantKey,terrainFill.get(plantKey));
+        }
+      }
       com.sora.splineroads.core.RoadPlanningBudget.check();
     }
     void restore(ServerLevel level,RuntimeException failure){
@@ -1365,7 +1402,18 @@ public final class RoadData extends SavedData {
   }
   private static void requireBlockState(ServerLevel level,BlockPos pos,BlockState state){
     var actual=level.getBlockState(pos);
-    if(!actual.equals(state))throw new IllegalStateException("世界拒绝写入道路方块："+pos.toShortString()+" target="+state+" actual="+actual);
+    if(!sameWrittenState(actual,state))throw new IllegalStateException("世界拒绝写入道路方块："+pos.toShortString()+" target="+state+" actual="+actual);
+  }
+  // 2.1.1: empty sections and world hooks may canonicalize vanilla cave/void air.
+  // Only these three dry states are equivalent; solids and fluids still need an exact receipt.
+  static boolean sameWrittenState(net.minecraft.world.level.block.state.BlockState actual,
+      net.minecraft.world.level.block.state.BlockState expected){
+    return actual.equals(expected)||vanillaAir(actual)&&vanillaAir(expected);
+  }
+  private static boolean vanillaAir(net.minecraft.world.level.block.state.BlockState state){
+    return state.is(net.minecraft.world.level.block.Blocks.AIR)
+        ||state.is(net.minecraft.world.level.block.Blocks.CAVE_AIR)
+        ||state.is(net.minecraft.world.level.block.Blocks.VOID_AIR);
   }
   /** Original states may depend on each other (e.g. the two halves of seagrass).
    * Restore every state and entity before replaying the normal shape notifications.
@@ -1432,7 +1480,7 @@ public final class RoadData extends SavedData {
       // Updating neighbours need not revisit the newly restored cell itself.
       // In particular, an upper-only plant must not be accepted as a stable restore.
       var stable=net.minecraft.world.level.block.Block.updateFromNeighbourShapes(state,level,pos);
-      if(!stable.equals(state))throw new IllegalStateException("世界拒绝写入道路方块："+pos.toShortString()+" target="+state+" supported="+stable);
+      if(!sameWrittenState(stable,state))throw new IllegalStateException("世界拒绝写入道路方块："+pos.toShortString()+" target="+state+" supported="+stable);
       var entity=level.getBlockEntity(pos);var tag=entities.get(entry.getKey());
       if(tag!=null&&(entity==null||entity.isRemoved()||!entity.getBlockPos().equals(pos)||!entity.getBlockState().equals(state)
           ||!entity.getType().isValid(state)||!entity.saveWithFullMetadata(net.minecraft.core.RegistryAccess.EMPTY).equals(tag)))throw new IllegalStateException("恢复后端点/填充实体不一致："+pos.toShortString());
@@ -1711,6 +1759,8 @@ public final class RoadData extends SavedData {
         if (index.roads.containsKey(id)) terrainRoads.add(index.roads.get(id));
       boolean largeAssembly=terrainRoads.stream().anyMatch(r->{
         var descriptor=r.record.assembly()==null?null:interchanges.get(r.record.assembly());
+        // 2.1.1: wide ordinary junctions also rebuild several full approach roads atomically.
+        if(r.record.junction()!=null&&r.record.junction().spec().arms().size()>=3)return true;
         return descriptor!=null&&descriptor.getLongArray("Points").length>=3;
       });
       if(largeAssembly){workChunks.multiInterchange();editCellLimit=Math.max(editCellLimit,RoadLimits.MAX_MULTI_INTERCHANGE_EDIT_CELLS);}
@@ -1751,7 +1801,7 @@ public final class RoadData extends SavedData {
           }
           throw new IllegalArgumentException("断面与车道点未能稳定，请调整道路样式后重试");
         }
-        LaneTopology.reconcile(this,built,removed);
+        LaneTopology.reconcilePlanned(this,built,removed);
       enlistSupportDependencies(built,removed);
         // Late topology can enlist a remote support owner; its terrain must be loaded too.
         workChunks.roads(built);

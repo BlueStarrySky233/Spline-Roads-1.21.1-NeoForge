@@ -617,9 +617,8 @@ public final class RoadTerrainModels {
       if(fill!=null){int visible=0;for(var direction:Direction.values()){var adjacent=pos.relative(direction);if(!level.getBlockState(adjacent).isSolidRender(level,adjacent))visible|=1<<direction.ordinal();}input=input.derive().with(RoadAsphaltModel.POSITION,pos.immutable()).with(FILL_FACES,visible).build();}
       var section=new Section(pos.getX()>>4,pos.getY()>>4,pos.getZ()>>4);
       int cell=(pos.getX()&15)|((pos.getZ()&15)<<4)|((pos.getY()&15)<<8);
-      var map=RoadTerrainHandoff.model(section,cell);if(map==null)return withoutRoads(input);
-      ModelData data=map.get(cell);
-      if(data==null)return withoutRoads(input);
+      ModelData data=RoadTerrainHandoff.model(pos);if(data==null)return withoutRoads(input);
+        if(data==null)return withoutRoads(input);
       // A sloping deck lies inside a sealed collision cell. Vanilla's inset
       // face lighting samples that cell's darkness, although the actual road
       // surface is exposed above it. Supply the exterior light, retaining real

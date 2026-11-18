@@ -55,7 +55,7 @@ public final class ManualPlanner {
     if(action.equals("manualUndo")||action.equals("manualRedo")){RoadPlanningJobs.cancel(p.getUUID());String message=s.history.apply(p,action.equals("manualUndo"));if(s.terrain!=null)s.terrain.changed(s.history.changedChunks());state(p,s,"manualState");return message;}
     return edit(p,t,()->{
       if(action.equals("manualAccessPreview")||action.equals("manualAccessBuild")){check(p,new V(t.getDouble("X"),t.getDouble("Y"),t.getDouble("Z")));if(action.equals("manualAccessPreview")){RoadNetwork.open(p,ManualAccessRoads.preview(p,t));return "";}return ManualAccessRoads.build(p,t);}
-      V hit=new V(t.getDouble("X"),t.getDouble("Y"),t.getDouble("Z"));check(p,hit);var pos=t.contains("Pos")?BlockPos.of(t.getLong("Pos")):BlockPos.containing(hit.x(),hit.y(),hit.z());check(p,new V(pos.getX(),pos.getY(),pos.getZ()));
+      V hit=new V(t.getDouble("X"),t.getDouble("Y"),t.getDouble("Z"));check(p,hit);var pos=t.contains("Pos")?BlockPos.of(t.getLong("Pos")):BlockPos.containing(hit.x(),hit.y(),hit.z());check(p,new V(pos.getX(),pos.getY(),pos.getZ()));if(t.contains("Pos")&&p.serverLevel().getBlockEntity(pos) instanceof NodeEntity node&&!node.visibleMarker())throw new IllegalArgumentException("路口点已删除，请重新选择");
       if(t.hasUUID("Road")&&road(p,t).record.railway()){
         if(action.equals("manualDetails")||action.equals("manualDelete")||action.equals("manualClick")&&s.selected==1){s.editor=s.tool(SplineRoads.RAILBED_CONNECTOR.get());RailbedTool.openExisting(p,t.getUUID("Road"),s.token);return "";}
         throw new IllegalArgumentException("铁路路基不提供公路车道点；请用指针再次单击打开编辑");

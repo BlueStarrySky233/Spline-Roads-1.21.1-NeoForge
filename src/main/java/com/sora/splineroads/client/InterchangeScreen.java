@@ -122,7 +122,7 @@ public final class InterchangeScreen extends Screen {
               options.lanes(),
               options.rampWidth(),
               options.adjustEndpoints());
-      status = HostAxes.retiredInterchange(payload)?HostAxes.RETIRED_MESSAGE:"旧布局已停用；更新时将使用当前预设，也可仅删除匝道保留主路";
+      status = "所选样式暂不适用当前道路，已保留原选择；请调整道路或手动选择其他样式";
     }
   }
 
@@ -180,7 +180,7 @@ public final class InterchangeScreen extends Screen {
         width,
         adjust,
         options.allowShrink(),
-        options.maxLowering(), options.junctionAxis(),options.loopMask(),options.allowAbove(),options.flatConnector(),options.connectorHeight(),options.toll());
+        options.maxLowering(), options.junctionAxis(),options.loopMask(),options.allowAbove(),options.flatConnector(),options.connectorHeight(),options.toll(),options.trumpetStyle());
   }
 
   private boolean highway(int axis){return RoadProfile.catalog(RoadRecord.readSettings(payload.getCompound("Main"+(axis+1)))).type()==RoadProfile.Type.HIGHWAY;}
@@ -238,16 +238,9 @@ public final class InterchangeScreen extends Screen {
     top = Math.max(4, (height - panelHeight) / 2);
     control = Math.min(306, (int)((panel - 36) * .54));
     int x = left + 12, y = top + 26, w = control, half = (w - 8) / 2, third = (w - 8) / 3;
-    if(HostAxes.retiredInterchange(payload)){
-      status=HostAxes.RETIRED_MESSAGE;needsPlan=false;initializing=false;page=0;
-      save=addRenderableWidget(Button.builder(Component.literal("曲线立交建造已撤下"),b->{}).bounds(x,y,w,20).build());save.active=false;
-      preview=save;
-      addRenderableWidget(Button.builder(Component.literal("关闭"),b->onClose()).bounds(x,y+28,w,20).build());
-      if(payload.hasUUID("Id"))for(int i=0;i<2;i++){
-        String action=i==0?"interchangeDeleteRamps":"interchangeDelete";String label=i==0?"仅删匝道，保留主路":"删除整座";
-        addRenderableWidget(Button.builder(Component.literal(label),b->{if(!action.equals(deleteConfirmation)){deleteConfirmation=action;b.setMessage(Component.literal("确认："+label));}else submit(action);}).bounds(x,y+56+i*28,w,20).build());
-      }
-      return;
+
+    if(options.preset()==InterchangePlanner.Preset.TRUMPET||options.preset()==InterchangePlanner.Preset.DOUBLE_TRUMPET){
+      heights.visible=false;
     }
     int tabs=3,tw=(w-4*(tabs-1))/tabs;
     tab("布局 / 匝道", x, y, tw, 0);

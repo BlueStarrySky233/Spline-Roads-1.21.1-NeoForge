@@ -204,7 +204,7 @@ public final class RoadDistantRenderer {
   private static int buildLogged;
   private static int drawnParts;
   /** Visible fixtures per road; beyond this the mesh grows faster than the eye gains. */
-  private static final int MAX_STRUCTURE_PARTS = 800;
+  private static final int MAX_STRUCTURE_PARTS = 400;
 
   public void onResourceReload() { clear(); }
 
@@ -283,34 +283,34 @@ public final class RoadDistantRenderer {
     // renderDistance*16, so a positive margin left a band that neither side drew.
     double near = Math.max(48.0,
         Minecraft.getInstance().options.getEffectiveRenderDistance() * 16.0 - 16.0);
-    try (var budget = com.sora.splineroads.core.RoadPlanningBudget.open("SR distant LOD", 0.25)) {
-      for (var built : ClientRoads.INDEX.roads.values()) {
-        var id = built.record.id();
-        if (batches.containsKey(id) || skipped.contains(id)) continue;
-        var samples = built.mesh.samples();
-        if (samples.size() < 2) { skipped.add(id); continue; }
-        boolean anyFar = false;
-        for (var sample : samples) {
-          if (sample.center().sub(eye).horizontalLength() >= near) { anyFar = true; break; }
-        }
-        if (!anyFar) continue;   // not skipped: distance changes as the player moves
-        try {
-          var geometry = com.sora.splineroads.core.RoadSurface.build(built.mesh, List.of(), List.of());
-          Object mesh = build(built, geometry, eye, near);
-          if (mesh != null) batches.put(id, new Batch(mesh)); else skipped.add(id);
-        } catch (com.sora.splineroads.core.RoadPlanningBudget.Expired more) {
-          break;   // out of budget this frame; the rest is picked up next frame
-        } catch (Throwable failure) {
-          // Silent skips made every earlier diagnosis guesswork: report the first few instead.
-          if (failedReported < 3) {
-            failedReported++;
-            say("build failed: " + failure);
-          }
-          skipped.add(id);
-        }
+    // The budget gates *starting* a road, not finishing one. Once a road begins it runs to
+    // completion: an interrupted build loses its progress and can never finish a road that
+    // legitimately needs more than one frame's allowance.
+    long frameStart = System.nanoTime();
+    long startBudget = 20_000_000L;
+    for (var built : ClientRoads.INDEX.roads.values()) {
+      if (System.nanoTime() - frameStart > startBudget) break;
+      var id = built.record.id();
+      if (batches.containsKey(id) || skipped.contains(id)) continue;
+      var samples = built.mesh.samples();
+      if (samples.size() < 2) { skipped.add(id); continue; }
+      boolean anyFar = false;
+      for (var sample : samples) {
+        if (sample.center().sub(eye).horizontalLength() >= near) { anyFar = true; break; }
       }
-    } catch (com.sora.splineroads.core.RoadPlanningBudget.Expired more) {
-      // keep going next frame
+      if (!anyFar) continue;   // not skipped: distance changes as the player moves
+      try {
+        var geometry = com.sora.splineroads.core.RoadSurface.build(built.mesh, List.of(), List.of());
+        Object mesh = build(built, geometry, eye, near);
+        if (mesh != null) batches.put(id, new Batch(mesh)); else skipped.add(id);
+      } catch (Throwable failure) {
+        // Silent skips made every earlier diagnosis guesswork: report the first few instead.
+        if (failedReported < 3) {
+          failedReported++;
+          say("build failed: " + failure);
+        }
+        skipped.add(id);
+      }
     }
     if (batches.size() != reported) {
       reported = batches.size();
@@ -404,6 +404,10 @@ public final class RoadDistantRenderer {
         budget--;
         drawnParts++;
       }
+    } catch (com.sora.splineroads.core.RoadPlanningBudget.Expired expired) {
+      // Out of time for this frame. Rethrow so the caller leaves the road pending and
+      // rebuilds it next frame; finishing here would leave the road without its fixtures.
+      throw expired;
     } catch (Throwable failure) {
       // Was silent: a throw here dropped every fixture for the road with no trace anywhere.
       if (buildLogged < 6) {
@@ -475,22 +479,40 @@ public final class RoadDistantRenderer {
     }
   }
 
-  /** Road surface height nearest to the given horizontal position. */
+  /** Road surface height at a horizontal position, interpolated between the nearest samples.
+   *  <p>Scanning every sample per vertex cost roughly 32k comparisons per road. A coarse walk
+   *  followed by a local refine and a linear blend keeps slopes smooth for a fraction of that. */
   private static double deckHeightAt(java.util.List<com.sora.splineroads.core.RoadGeometry.Sample> deck,
       double x, double z) {
-    double best = Double.NaN;
+    int size = deck.size();
+    if (size == 0) return Double.NaN;
+    if (size == 1) return deck.get(0).center().y();
+    int step = Math.max(1, size / 32);
+    int best = 0;
     double bestDistance = Double.MAX_VALUE;
-    // Full sampling: stepping through the deck quantised the height into visible steps on slopes.
-    for (int i = 0; i < deck.size(); i++) {
+    for (int i = 0; i < size; i += step) {
       var centre = deck.get(i).center();
       double dx = centre.x() - x, dz = centre.z() - z;
       double distance = dx * dx + dz * dz;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = centre.y();
-      }
+      if (distance < bestDistance) { bestDistance = distance; best = i; }
     }
-    return Double.isFinite(best) ? best : deck.get(0).center().y();
+    int from = Math.max(0, best - step), to = Math.min(size - 1, best + step);
+    for (int i = from; i <= to; i++) {
+      var centre = deck.get(i).center();
+      double dx = centre.x() - x, dz = centre.z() - z;
+      double distance = dx * dx + dz * dz;
+      if (distance < bestDistance) { bestDistance = distance; best = i; }
+    }
+    if (best == 0) return deck.get(0).center().y();
+    if (best == size - 1) return deck.get(size - 1).center().y();
+    var previous = deck.get(best - 1).center();
+    var centre = deck.get(best).center();
+    var next = deck.get(best + 1).center();
+    double segment = Math.hypot(next.x() - previous.x(), next.z() - previous.z());
+    if (segment < 1e-9) return centre.y();
+    double along = Math.hypot(x - previous.x(), z - previous.z()) / segment;
+    along = Math.max(0, Math.min(1, along));
+    return previous.y() + (next.y() - previous.y()) * along;
   }
 
   /** Fixture colour per material, mirroring the table RoadStructures uses for its own faces. */

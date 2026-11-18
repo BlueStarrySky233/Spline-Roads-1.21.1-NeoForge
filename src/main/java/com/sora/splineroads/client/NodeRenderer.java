@@ -49,7 +49,7 @@ public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
       int light,
       int overlay) {
     var p = Minecraft.getInstance().player;
-    if (p == null
+    if (p == null || !n.visibleMarker() || ClientRoads.INDEX.internalInterchangeNode(n.getBlockPos())
         || (!com.sora.splineroads.world.RoadTool.showsNodes(p.getMainHandItem())
             && !com.sora.splineroads.world.RoadTool.showsNodes(p.getOffhandItem()))) return;
     var renderer = Minecraft.getInstance().getBlockRenderer();
@@ -71,6 +71,12 @@ public final class NodeRenderer implements BlockEntityRenderer<NodeEntity> {
     pose.translate(.5 + n.offsetX, n.offsetY + .05, .5 + n.offsetZ);
     pose.mulPose(com.mojang.math.Axis.YP.rotationDegrees(-((float) n.yaw)));
     VertexConsumer c = buffer.getBuffer(RenderType.lines());
+    if(n.junctionSource!=null){
+      // 2.1.1: a split marker can sit inside the planted median. Raise only its
+      // tool indicator, never the actual road seam.
+      line(pose,c,0,0,0,0,1.6f,0);
+      pose.translate(0,1.6,0);
+    }
     line(pose, c, 0, 0, -.6f, 0, 0, .8f);
     line(pose, c, 0, 0, .8f, -.3f, 0, .4f);
     line(pose, c, 0, 0, .8f, .3f, 0, .4f);

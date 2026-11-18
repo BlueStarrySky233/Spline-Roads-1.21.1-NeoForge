@@ -15,6 +15,18 @@ public final class NodeEntity extends BlockEntity {
   public boolean headingLocked, gradeLocked, heightExplicit, plannerHeading;
   public UUID owner;
   public UUID junctionSource;
+  private boolean hiddenJunctionPoint;
+
+  /** 2.1.1: a junction point can be deleted from the planning map without removing the block. */
+  public boolean visibleMarker() {
+    return !hiddenJunctionPoint;
+  }
+
+  void showJunctionPoint(boolean visible) {
+    hiddenJunctionPoint = !visible;
+    setChanged();
+    if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+  }
 
   public NodeEntity(BlockPos pos, BlockState state) {
     super(SplineRoads.NODE_ENTITY.get(), pos, state);
@@ -59,6 +71,7 @@ public final class NodeEntity extends BlockEntity {
     t.putBoolean("GradeLocked", gradeLocked);
     if (owner != null) t.putUUID("Owner", owner);
     if(junctionSource!=null)t.putUUID("JunctionSource",junctionSource);
+    if(hiddenJunctionPoint)t.putBoolean("HiddenJunctionPoint",true);
   }
 
   @Override
@@ -74,6 +87,7 @@ public final class NodeEntity extends BlockEntity {
     }
     if (t.hasUUID("Owner")) owner = t.getUUID("Owner");
     junctionSource=t.hasUUID("JunctionSource")?t.getUUID("JunctionSource"):null;
+    hiddenJunctionPoint=junctionSource!=null&&t.getBoolean("HiddenJunctionPoint");
     heightExplicit =
         t.contains("HeightExplicit")
             ? t.getBoolean("HeightExplicit")

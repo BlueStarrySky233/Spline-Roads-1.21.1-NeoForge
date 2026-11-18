@@ -35,7 +35,7 @@ public final class Interchanges {
     t.putDouble("Clearance", o.clearance());
     t.putInt("Upper", o.upper());
     t.putInt("JunctionAxis",o.junctionAxis());
-    t.putInt("LoopMask",o.loopMask());
+    t.putInt("LoopMask",o.loopMask());t.putString("TrumpetStyle",o.trumpetStyle().name());
     t.putBoolean("AllowAbove",o.allowAbove());t.putBoolean("FlatConnector",o.flatConnector());t.putDouble("ConnectorHeight",o.connectorHeight());
     t.putDouble("RampWidth", o.rampWidth());
     t.putBoolean("AdjustEndpoints", o.adjustEndpoints());
@@ -60,7 +60,7 @@ public final class Interchanges {
         t.contains("MaxLowering") ? t.getDouble("MaxLowering") : 8,
         t.contains("JunctionAxis") ? t.getInt("JunctionAxis") : 1,
         t.contains("LoopMask") ? t.getInt("LoopMask") : 5,
-        t.getBoolean("AllowAbove"),t.getBoolean("FlatConnector"),t.getDouble("ConnectorHeight"),readToll(t));
+        t.getBoolean("AllowAbove"),t.getBoolean("FlatConnector"),t.getDouble("ConnectorHeight"),readToll(t),t.contains("TrumpetStyle")?InterchangePlanner.TrumpetStyle.valueOf(t.getString("TrumpetStyle")):InterchangePlanner.TrumpetStyle.A);
   }
 
   private static DoubleTrumpetToll.Config readToll(CompoundTag options){
@@ -73,6 +73,20 @@ public final class Interchanges {
     for(String key:List.of("DesignInputNodes","DesignInputAxes","DesignFittedNodes","DesignShape","DesignFixed","ParallelDesignScale","ParallelDesignOptions"))t.remove(key);
   }
 
+  /** 2.1.1: only authored inputs travel back to the server. Parallel SPUI hosts are
+   *  independently owned roads and capture() rereads them before construction. */
+  public static CompoundTag command(CompoundTag payload,InterchangePlanner.Plan plan,String action){
+    var command=new CompoundTag();
+    for(String key:List.of("Id","Points","Options"))
+      if(payload.contains(key))command.put(key,payload.get(key).copy());
+    if(!ParallelSpui.active(payload))for(String key:List.of("Main1","Main2","Main3"))
+      if(payload.contains(key))command.put(key,payload.get(key).copy());
+    command.putString("Action",action);
+    command.putInt("SourceAxesHash",HostAxes.signature(payload));
+    command.put("SourceNodes",payload.getList("Nodes",Tag.TAG_COMPOUND).copy());
+    if(plan!=null){var targets=new ListTag();plan.anchors().forEach(node->targets.add(RoadRecord.writeNode(node)));command.put("FittedNodes",targets);}
+    return command;
+  }
   public static InterchangePlanner.Plan plan(CompoundTag t) {
     if(ParallelSpui.present(t))return ParallelSpui.plan(t);
     validateMainStyles(t);
@@ -92,7 +106,6 @@ public final class Interchanges {
     }
   }
   private static InterchangePlanner.Plan planBase(CompoundTag t) {
-    if(HostAxes.retiredInterchange(t))throw new IllegalArgumentException(HostAxes.RETIRED_MESSAGE);
     CompoundTag key = new CompoundTag();
     for (String field : List.of("Nodes", "Main1", "Main2", "Main3", "Options", "MultiBaseY", "Corridor", "ResolvedFit", "HostAxes"))
       if (t.contains(field)) key.put(field, t.get(field).copy());
@@ -104,7 +117,7 @@ public final class Interchanges {
     if (tags.size() < 2 || tags.size() > 6) throw new IllegalArgumentException("道路组合端点数据不完整");
     Node[] nodes = new Node[tags.size()];
     for (int i = 0; i < nodes.length; i++) nodes[i] = RoadRecord.readNode(tags.getCompound(i));
-    var result = t.contains("Corridor") ? CurvedRoadPlans.corridor(nodes,RoadRecord.readSettings(t.getCompound("Main1")),RoadRecord.readSettings(t.getCompound("Main2")),read(t.getCompound("Options")),Corridors.effective(t),HostAxes.read(t)) : nodes.length>=5 ? MultiInterchange.plan(nodes,new Settings[]{RoadRecord.readSettings(t.getCompound("Main1")),RoadRecord.readSettings(t.getCompound("Main2")),RoadRecord.readSettings(t.getCompound("Main3"))},read(t.getCompound("Options")),t.getDouble("MultiBaseY")) :
+    var result = t.contains("Corridor") ? CurvedRoadPlans.corridor(nodes,RoadRecord.readSettings(t.getCompound("Main1")),RoadRecord.readSettings(t.getCompound("Main2")),read(t.getCompound("Options")),Corridors.effective(t),HostAxes.read(t)) : nodes.length>=5 ? CurvedRoadPlans.multi(nodes,new Settings[]{RoadRecord.readSettings(t.getCompound("Main1")),RoadRecord.readSettings(t.getCompound("Main2")),RoadRecord.readSettings(t.getCompound("Main3"))},read(t.getCompound("Options")),t.getDouble("MultiBaseY"),HostAxes.read(t)) :
         CurvedRoadPlans.interchange(
             nodes,
             RoadRecord.readSettings(t.getCompound("Main1")),
@@ -183,7 +196,6 @@ public final class Interchanges {
           settings = r.settings();
         }
         if(!t.contains(key))t.put(key, RoadRecord.writeSettings(settings));
-        if(points.length>=5&&!chain.isEmpty()){var path=HostAxes.chain(chain,BlockPos.of(points[axis*2]));if(path.curved()||!path.flat())throw new IllegalArgumentException("五、六向立交仍需要平直且各自等高的主路");}
         if(axis*2<points.length&&points.length<5){
           var defaults=HostAxes.read(t);
           hostAxes.add(chain.isEmpty()?defaults.get(axis):HostAxes.chain(chain,BlockPos.of(points[axis*2])));

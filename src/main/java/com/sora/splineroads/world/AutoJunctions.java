@@ -90,7 +90,7 @@ public final class AutoJunctions {
   public static int degree(RoadData d,BlockPos p,UUID exclude){return (int)logical(d).values().stream().filter(r->!r.id().equals(exclude)&&touches(r,p)).count();}
   public static boolean handles(RoadData d,BlockPos a,BlockPos b,UUID id,boolean force){return d.streets.containsKey(id)||d.streets.values().stream().anyMatch(r->touches(r,a)||touches(r,b))||center(d,a)!=null||center(d,b)!=null||ringAt(d,a)!=null||ringAt(d,b)!=null||degree(d,a,id)>=2||degree(d,b,id)>=2||force&&(degree(d,a,id)>0||degree(d,b,id)>0);}
   public static void enrich(CompoundTag t,RoadData d,BlockPos a,BlockPos b,UUID id){
-    CompoundTag graph=context(d,Set.of(a,b),false);t.put("JunctionGraph",graph);
+    CompoundTag graph=context(d,Set.copyOf(List.of(a,b)),false);t.put("JunctionGraph",graph);
     t.putInt("DegreeA",degree(d,a,id));t.putInt("DegreeB",degree(d,b,id));
     t.putBoolean("AutoJunction",handles(d,a,b,id,false));
     t.putBoolean("CenterA",center(d,a)!=null||ringAt(d,a)!=null);t.putBoolean("CenterB",center(d,b)!=null||ringAt(d,b)!=null);
@@ -199,7 +199,7 @@ public final class AutoJunctions {
     var previous=command.contains("Road")?RoadRecord.load(command.getCompound("Road")):null;
     var plan=previous==null?null:previous.retainedPlan(s,ah,bh,RoadRecord.readNode(command.getCompound("StartNode")),RoadRecord.readNode(command.getCompound("EndNode")));
     if(plan==null)plan=RoadPlanner.plan(ah,bh,s);
-    var next=new RoadRecord(command.hasUUID("Id")?command.getUUID("Id"):UUID.nameUUIDFromBytes((command.getLong("A")+":"+command.getLong("B")).getBytes(StandardCharsets.UTF_8)),new UUID(0,0),BlockPos.of(command.getLong("A")),BlockPos.of(command.getLong("B")),s.mode()==Mode.CURVE?a:plan.start(),s.mode()==Mode.CURVE?b:plan.end(),plan.settings(),s.mode()==Mode.AUTO,4);
+    var next=new RoadRecord(command.hasUUID("Id")?command.getUUID("Id"):UUID.nameUUIDFromBytes((command.getLong("A")+":"+command.getLong("B")).getBytes(StandardCharsets.UTF_8)),new UUID(0,0),BlockPos.of(command.getLong("A")),BlockPos.of(command.getLong("B")),plan.start(),plan.end(),plan.settings(),s.mode()==Mode.AUTO,4);
     if(previous!=null)next=previous.retainAlignment(next,s,RoadRecord.readNode(command.getCompound("StartNode")),RoadRecord.readNode(command.getCompound("EndNode")));
     return RoadCrossingTransitions.preview(next,command);
   }
