@@ -41,9 +41,9 @@ Spline Roads 是 Minecraft 的道路建造模组，提供样条道路、路口�
 | Minecraft | 1.21.1 |
 | NeoForge | 21.1.264（21.1.x 任意小版本均可） |
 | Java | 21 |
-| 模组版本 | 1.21.1-2.1.0-1 |
+| 模组版本 | 1.21.1-2.1.0-1-hotfix-1 |
 
-版本号格式为 `Minecraft版本-所移植的SR版本-移植修订号`。`1.21.1-2.1.0-1` 表示：面向 Minecraft 1.21.1、移植自 1.20.1 分支的 Spline Roads 2.1.0、移植侧第 1 个修订。修订号只在移植侧修 bug 时递增，不改变所对照的上游版本。
+版本号格式为 `Minecraft版本-所移植的SR版本-移植修订号-更新修复补丁（如有）`。`1.21.1-2.1.0-1-hotfix-1` 表示：面向 Minecraft 1.21.1、移植自 1.20.1 分支的 Spline Roads 2.1.0、移植侧第 1 个修订、第 1 个修复补丁。修订号只在移植侧修 bug 时递增，不改变所对照的上游版本。
 
 ## 安装
 
@@ -105,6 +105,10 @@ export JAVA_HOME=/path/to/jdk-21
 
 ## 移植修订记录
 
+**1.21.1-2.1.0-1-hotfix-1**
+- 修复安装 FramedBlocks 后无法进入世界的问题。FramedBlocks 的 `ReinforcementModel.reload()` 会以 `state = null` 调用其它围栏模型的 `getQuads`/`getRenderTypes`，`RoadTerrainModels` 未判空而抛 `NullPointerException`，打断 `ModelEvent.BakingCompleted` 派发并使资源重载失败。两处均已加判空。同时远景标线改为逐点贴合路面高度，修复坡道上标线悬空与阶梯状起伏。
+
+
 **1.21.1-2.1.0-1**（跟进上游 Spline Roads 2.1.0）
 - 上游新增**路口点创建器**（`junction_point_creator`）：可直接在道路断面上创建路口点
 - 上游新增**连续道路**体系（拟合 / 提交 / 回收），路口与立交的端点可跨道路连续续建
@@ -120,6 +124,7 @@ export JAVA_HOME=/path/to/jdk-21
 - 修复规划地图「工具 2」不响应端点模式：原来仍按 Alt/Ctrl 快捷键分派，导致路口点创建器无法从地图内触发；现按端点模式（道路端点 / 路口点 / 附属点 / 出入点）分派
 - 恢复规划设置三个滑块的悬停说明（上游 `SettingSlider.hint()`），并修正地表缓存滑块的文案
 - 远景 LOD：经由 Voxy 的公开渲染钩子（`LodPipelineHooks`）与它给外部几何准备的 `DistantMeshBuilder`/`DistantShaders` 绘制，不需要修改 Voxy。路面从 `mesh.samples()` 生成整幅带状几何以避免切片面的 UV 压缩；标线取 `RoadSurface` 的标线面并整体平移到路面高度；结构与近景同源，直接复用 `record.structures()`；标牌经 `SmartSignClient.loadedStates()` 取状态后由 `SmartSignFaces` 生成牌面。光照由 Voxy 的 shader 采样原版 lightmap，昼夜与照明自动一致，`luminous()` 部件固定满亮。单条道路最多绘制 800 个结构部件，规划预算 0.25 秒，超时顺延到下一帧。`/sr voxy on|off` 开关，`/sr voxyshade` 调整路面亮度。注意远景标线可能与近景不同（坐标基准不同，仅能整批平移对齐），且绿化带不在远景输出中。
+
 
 **1.21.1-2.0-2**（第 2 个移植修订）
 - 修复标牌立即模式几何被二次旋转，龙门架/支架不再跟随相机
